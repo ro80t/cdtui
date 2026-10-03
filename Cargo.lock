@@ -128,18 +128,18 @@ dependencies = [
 
 [[package]]
 name = "cdt-search"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ignore",
 ]
 
 [[package]]
 name = "cdt-tree"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "cdt-view"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cdt-search",
  "cdt-tree",
@@ -148,7 +148,7 @@ dependencies = [
 
 [[package]]
 name = "cdtui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cdt-view",
 ]
