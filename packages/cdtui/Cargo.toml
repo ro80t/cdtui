@@ -19,5 +19,9 @@ readme = "../../README.md"
 name = "cdt"
 path = "src/main.rs"
 
+[[bin]]
+name = "cdtui"
+path = "src/main.rs"
+
 [dependencies]
 cdt-view.workspace = true
