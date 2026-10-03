@@ -70,7 +70,9 @@ search rather than act:
 | `Esc` | back to the tree |
 
 `/` does not need ripgrep installed: it uses ripgrep's own walker (the `ignore`
-crate) as a library. `s` shells out to `rg`.
+crate) as a library. `s` shells out to `rg`. Both run on a worker thread, so
+typing stays responsive on a large tree and the status bar shows `searching…`
+until the hits land. A count shown as `500+` means the list was capped.
 
 ## Libraries
 

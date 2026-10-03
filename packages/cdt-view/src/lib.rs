@@ -3,10 +3,12 @@
 //! calling shell.
 //!
 //! - [`app`] holds the state and resolves what Enter means.
+//! - [`search`] runs queries on a worker thread, off the key loop.
 //! - [`view`] renders it.
 //! - [`run`] owns the terminal and the key table.
 mod app;
 mod run;
+mod search;
 mod view;
 
 pub use run::pick;

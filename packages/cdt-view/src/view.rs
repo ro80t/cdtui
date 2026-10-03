@@ -56,10 +56,25 @@ fn tree_row(e: &cdt_tree::Entry) -> ListItem<'static> {
 fn status(app: &App) -> String {
     match &app.mode {
         _ if !app.msg.is_empty() => app.msg.clone(),
-        Mode::Find(q) => format!("find: {q}_  ({} hits)", app.hits.len()),
-        Mode::Grep(q) => format!("grep: {q}_  ({} files)", app.hits.len()),
+        Mode::Find(q) => format!("find: {q}_  ({})", count(app, "hits")),
+        Mode::Grep(q) => format!("grep: {q}_  ({})", count(app, "files")),
         Mode::Tree => HELP.into(),
     }
+}
+
+/// Hit count, flagged when the backend stopped at its cap so a truncated list
+/// does not read as the whole answer, and while a search is still running.
+fn count(app: &App, noun: &str) -> String {
+    let n = app.hits.len();
+    let more = if n >= cdt_search::MAX_HITS { "+" } else { "" };
+    if app.search.pending() {
+        return if n == 0 {
+            "searching…".into()
+        } else {
+            format!("{n}{more} {noun}, searching…")
+        };
+    }
+    format!("{n}{more} {noun}")
 }
 
 #[cfg(test)]
@@ -78,5 +93,34 @@ mod tests {
         // A message outranks the query, so an rg failure stays visible.
         app.msg = "rg unavailable".into();
         assert_eq!(status(&app), "rg unavailable");
+    }
+
+    /// A list capped at MAX_HITS must not read as the complete answer.
+    #[test]
+    fn a_capped_hit_list_is_flagged() {
+        let mut app = App::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+        app.mode = Mode::Find("e".into());
+
+        app.hits = vec![PathBuf::from("p"); cdt_search::MAX_HITS];
+        let s = status(&app);
+        assert!(
+            s.contains(&format!("{}+ hits", cdt_search::MAX_HITS)),
+            "{s}"
+        );
+
+        app.hits.pop();
+        assert!(!status(&app).contains('+'), "{}", status(&app));
+    }
+
+    #[test]
+    fn an_in_flight_search_says_it_is_still_running() {
+        let mut app = App::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+        app.mode = Mode::Find("lib".into());
+        app.request_search("lib");
+        assert!(status(&app).contains("searching"), "{}", status(&app));
+
+        app.settle();
+        assert!(!status(&app).contains("searching"), "{}", status(&app));
+        assert!(!app.hits.is_empty());
     }
 }

@@ -26,3 +26,5 @@ cdt-view = { path = "packages/cdt-view", version = "0.2.0" }
 
 [profile.release]
 strip = true
+lto = "thin"
+codegen-units = 1

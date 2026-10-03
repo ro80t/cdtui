@@ -20,9 +20,9 @@ the full-text search, the `rg` binary on `PATH`.
 | crate | directory | role | deps |
 |---|---|---|---|
 | `cdt-tree` | `packages/cdt-tree` | tree model: expand/collapse, ordering, re-rooting | none (std only) |
-| `cdt-search` | `packages/cdt-search` | file-name search (`ignore`) and full-text search (`rg`) | `ignore` |
-| `cdt-view` | `packages/cdt-view` | rendering, key handling, terminal setup | `ratatui`, `cdt-tree`, `cdt-search` |
-| `cdtui` | `packages/cdtui` | the `cdt` binary (`cdt` = cdtui abbreviated): args in, chosen path to stdout | `cdt-view` |
+| `cdt-search` | `packages/cdt-search` | name search, files and folders (`ignore`), and full-text search (`rg`) | `ignore` |
+| `cdt-view` | `packages/cdt-view` | the picker, split into `app` (state), `search` (worker thread), `view` (rendering), `run` (terminal + key table) | `ratatui`, `cdt-tree`, `cdt-search` |
+| `cdtui` | `packages/cdtui` | args in, chosen path to stdout. Ships two commands, `cdt` and `cdtui`, as one-line bins in `src/bin/` over a shared lib | `cdt-view` |
 
 Each directory under `packages/` is named exactly after the crate it holds.
 Other rules that keep the split worth having:

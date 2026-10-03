@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use cdt_tree::Tree;
 
+use crate::search::{Done, Kind, Search};
+
 pub(crate) enum Mode {
     Tree,
     Find(String),
@@ -16,6 +18,7 @@ pub(crate) struct App {
     pub(crate) mode: Mode,
     pub(crate) sel: usize,
     pub(crate) msg: String,
+    pub(crate) search: Search,
 }
 
 impl App {
@@ -26,6 +29,7 @@ impl App {
             mode: Mode::Tree,
             sel: 0,
             msg: String::new(),
+            search: Search::spawn(),
         }
     }
 
@@ -66,6 +70,7 @@ impl App {
         self.hits.clear();
         self.sel = 0;
         self.msg.clear();
+        self.search.cancel();
     }
 
     /// `h`: close an open dir, else step out to the parent, else re-root upward.
@@ -94,17 +99,42 @@ impl App {
         self.sel = 0;
     }
 
-    pub(crate) fn search(&mut self, q: &str) {
+    /// Hand the query to the worker and carry on; results land via
+    /// [`App::apply`]. An empty query answers itself, so it never waits.
+    pub(crate) fn request_search(&mut self, q: &str) {
+        self.msg.clear();
+        if q.is_empty() {
+            self.hits.clear();
+            self.sel = 0;
+            self.search.cancel();
+            return;
+        }
+        let kind = match self.mode {
+            Mode::Grep(_) => Kind::Content,
+            _ => Kind::Names,
+        };
+        self.search.request(
+            kind,
+            self.tree.root.clone(),
+            q.to_string(),
+            self.tree.hidden,
+        );
+    }
+
+    /// Take a finished search into the view.
+    pub(crate) fn apply(&mut self, d: Done) {
+        self.hits = d.hits;
         self.sel = 0;
-        match self.mode {
-            Mode::Grep(_) => match cdt_search::grep(&self.tree.root, q, self.tree.hidden) {
-                Ok(hits) => self.hits = hits,
-                Err(e) => {
-                    self.hits.clear();
-                    self.msg = format!("rg unavailable: {e}");
-                }
-            },
-            _ => self.hits = cdt_search::find_names(&self.tree.root, q, self.tree.hidden),
+        if let Some(e) = d.err {
+            self.msg = e;
+        }
+    }
+
+    /// Run the pending search to completion. Tests only; the loop polls.
+    #[cfg(test)]
+    pub(crate) fn settle(&mut self) {
+        if let Some(d) = self.search.wait(std::time::Duration::from_secs(10)) {
+            self.apply(d);
         }
     }
 }
