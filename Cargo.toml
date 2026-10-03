@@ -10,8 +10,8 @@ edition = "2024"
 rust-version = "1.88"  # ratatui 0.30 and ignore 0.4.33 both require 1.88
 license = "MIT"
 authors = ["ro80t"]
-repository = "https://github.com/ro80t/cdt"
-homepage = "https://github.com/ro80t/cdt"
+repository = "https://github.com/ro80t/cdtui"
+homepage = "https://github.com/ro80t/cdtui"
 keywords = ["cli", "tui", "cd", "filesystem", "ripgrep"]
 categories = ["command-line-utilities", "filesystem"]
 

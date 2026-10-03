@@ -1,13 +1,13 @@
 # Contributing
 
-Repository: <https://github.com/ro80t/cdt> — user-facing docs live in
+Repository: <https://github.com/ro80t/cdtui> — user-facing docs live in
 [README.md](../README.md); everything about working on the code is here.
 
 ## Getting started
 
 ```sh
-git clone https://github.com/ro80t/cdt
-cd cdt
+git clone https://github.com/ro80t/cdtui
+cd cdtui
 cargo run -p cdtui          # the UI draws on stderr, so this is safe to watch
 cargo install --path packages/cdtui
 ```

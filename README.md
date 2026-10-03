@@ -1,6 +1,6 @@
 # cdt
 
-[![CI](https://github.com/ro80t/cdt/actions/workflows/ci.yml/badge.svg)](https://github.com/ro80t/cdt/actions/workflows/ci.yml)
+[![CI](https://github.com/ro80t/cdtui/actions/workflows/ci.yml/badge.svg)](https://github.com/ro80t/cdtui/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/cdtui.svg)](https://crates.io/crates/cdtui)
 
 A neo-tree style terminal UI for picking a directory to `cd` into — browse the
