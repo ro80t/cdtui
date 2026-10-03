@@ -8,6 +8,11 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
+  # sccache cannot cache incremental compilation, so turn it off where sccache
+  # is in use. CI builds from scratch anyway.
+  CARGO_INCREMENTAL: 0
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: "true"
 
 jobs:
   test:
@@ -26,8 +31,8 @@ jobs:
         with:
           components: clippy
 
-      - name: Restore the cargo cache
-        uses: Swatinem/rust-cache@v2
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
 
       # cdt-search shells out to `rg`; without it the grep test skips itself.
       - name: Install ripgrep (Linux)
@@ -44,9 +49,15 @@ jobs:
       - name: Run the test suite
         run: cargo test --workspace --locked
 
+      - name: Show sccache stats
+        run: sccache --show-stats
+
   fmt:
     name: Format
     runs-on: ubuntu-latest
+    # rustfmt never invokes rustc, so no sccache (and no wrapper to find).
+    env:
+      RUSTC_WRAPPER: ""
     steps:
       - name: Check out the repository
         uses: actions/checkout@v7
@@ -70,11 +81,14 @@ jobs:
       - name: Install the oldest supported Rust toolchain
         uses: dtolnay/rust-toolchain@1.88.0
 
-      - name: Restore the cargo cache
-        uses: Swatinem/rust-cache@v2
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
 
       - name: Build against the MSRV
         run: cargo check --workspace --all-targets --locked
+
+      - name: Show sccache stats
+        run: sccache --show-stats
 
   publish:
     name: Publish dry run
@@ -86,10 +100,13 @@ jobs:
       - name: Install the stable Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Restore the cargo cache
-        uses: Swatinem/rust-cache@v2
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
 
       # Catches publish-blocking metadata (a path dep without a version, a bad
       # category slug) on the PR instead of at release time.
       - name: Package every crate as crates.io would
         run: cargo publish --workspace --dry-run --locked
+
+      - name: Show sccache stats
+        run: sccache --show-stats

@@ -49,6 +49,39 @@ cargo fmt --all
 Each crate keeps its own unit tests in the file they cover. New non-trivial
 logic gets one test that fails if it breaks — not a suite per function.
 
+## Faster builds with sccache
+
+ratatui pulls in ~190 crates, so most of a cold build is dependencies. CI runs
+every compiling job through [sccache](https://github.com/mozilla/sccache),
+which caches compiler output per object and reuses it across jobs and runs.
+
+Locally it is opt-in, because a wired-in `rustc-wrapper` would break anyone
+without sccache installed:
+
+```sh
+cargo install sccache --locked   # or: winget install sccache / scoop install sccache / brew install sccache
+```
+
+```sh
+export RUSTC_WRAPPER=sccache CARGO_INCREMENTAL=0   # bash / zsh
+```
+
+```powershell
+$env:RUSTC_WRAPPER = "sccache"; $env:CARGO_INCREMENTAL = "0"   # PowerShell
+```
+
+```sh
+sccache --show-stats   # hit rate; expect misses on the first build only
+```
+
+`CARGO_INCREMENTAL=0` is required: sccache refuses to cache incremental
+compilation. That is the trade-off — for a tight edit-and-rebuild loop inside
+one crate, plain incremental builds win; sccache pays off when switching
+branches, bumping dependencies, or rebuilding from a clean `target/`.
+
+To make it permanent for yourself without touching the repo, put the wrapper in
+your own config (`~/.cargo/config.toml`), not in the project's.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on every push to `main` and every PR:
@@ -62,6 +95,13 @@ logic gets one test that fails if it breaks — not a suite per function.
 
 `rg` is installed on both runners: without it the `cdt-search` grep test skips
 itself and a regression would go unnoticed.
+
+Caching is sccache alone (via `mozilla-actions/sccache-action`, backed by the
+GitHub Actions cache), set up through the workflow-level `RUSTC_WRAPPER` and
+`SCCACHE_GHA_ENABLED`. Each job ends with `sccache --show-stats` so a dropping
+hit rate is visible in the log. The `fmt` job clears `RUSTC_WRAPPER` because
+rustfmt never invokes rustc. No `Swatinem/rust-cache` on top: caching the whole
+`target/` directory as well only duplicates what sccache already holds.
 
 Dependabot (`.github/dependabot.yml`) opens weekly grouped PRs for cargo
 dependencies and for the actions used above.
