@@ -1,0 +1,85 @@
+//! Search backends. Names go through ripgrep's walker (`ignore` crate, in
+//! process); content goes through the `rg` binary.
+use std::io;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+/// Cap on returned paths — a cd picker never needs more.
+pub const MAX_HITS: usize = 500;
+
+/// Paths under `root` whose file name contains `pat` (case-insensitive),
+/// skipping anything .gitignore excludes.
+pub fn find_names(root: &Path, pat: &str, hidden: bool) -> Vec<PathBuf> {
+    let pat = pat.to_lowercase();
+    ignore::WalkBuilder::new(root)
+        .hidden(!hidden)
+        .build()
+        .flatten()
+        .filter(|e| e.depth() > 0)
+        .filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .to_lowercase()
+                .contains(&pat)
+        })
+        .take(MAX_HITS)
+        .map(|e| e.path().to_path_buf())
+        .collect()
+}
+
+/// Files under `root` containing `pat`, via `rg -l`. Smart-case, like ripgrep's
+/// own default. Errors if the `rg` binary is missing.
+pub fn grep(root: &Path, pat: &str, hidden: bool) -> io::Result<Vec<PathBuf>> {
+    if pat.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut cmd = Command::new("rg");
+    cmd.args(["--files-with-matches", "--color=never", "--smart-case"]);
+    if hidden {
+        cmd.arg("--hidden");
+    }
+    let out = cmd.arg(pat).arg(root).output()?;
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .take(MAX_HITS)
+        .map(PathBuf::from)
+        .collect())
+}
+
+/// `p` relative to `root`, with forward slashes, for display.
+pub fn label(root: &Path, p: &Path) -> String {
+    p.strip_prefix(root)
+        .unwrap_or(p)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    }
+
+    #[test]
+    fn find_names_matches_case_insensitively() {
+        let hits = find_names(&root(), "LIB.RS", false);
+        assert!(
+            hits.iter().any(|p| label(&root(), p) == "src/lib.rs"),
+            "{hits:?}"
+        );
+    }
+
+    #[test]
+    fn grep_finds_a_string_in_this_file() {
+        // Skip where ripgrep isn't installed rather than failing the suite.
+        let Ok(hits) = grep(&root(), "MAX_HITS", false) else {
+            return;
+        };
+        assert!(
+            hits.iter().any(|p| label(&root(), p) == "src/lib.rs"),
+            "{hits:?}"
+        );
+    }
+}

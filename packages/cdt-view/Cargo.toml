@@ -1,0 +1,18 @@
+[package]
+name = "cdt-view"
+description = "ratatui view and key loop for the cdt directory picker."
+keywords = ["ratatui", "tui", "terminal", "picker", "cd"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+categories.workspace = true
+readme = "../../README.md"
+
+[dependencies]
+cdt-search.workspace = true
+cdt-tree.workspace = true
+ratatui.workspace = true

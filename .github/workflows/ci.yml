@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Install the stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Restore the cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      # cdt-search shells out to `rg`; without it the grep test skips itself.
+      - name: Install ripgrep (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Install ripgrep (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ripgrep -y --no-progress
+
+      - name: Lint with clippy
+        run: cargo clippy --workspace --all-targets --locked
+
+      - name: Run the test suite
+        run: cargo test --workspace --locked
+
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Install the stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+  msrv:
+    name: MSRV (1.88.0)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      # Guards rust-version in Cargo.toml: bump both together or not at all.
+      - name: Install the oldest supported Rust toolchain
+        uses: dtolnay/rust-toolchain@1.88.0
+
+      - name: Restore the cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build against the MSRV
+        run: cargo check --workspace --all-targets --locked
+
+  publish:
+    name: Publish dry run
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Install the stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore the cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      # Catches publish-blocking metadata (a path dep without a version, a bad
+      # category slug) on the PR instead of at release time.
+      - name: Package every crate as crates.io would
+        run: cargo publish --workspace --dry-run --locked

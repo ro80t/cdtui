@@ -1,0 +1,23 @@
+# Published as cdtui: the name `cdt` is already taken on crates.io. Binary
+# names are exempt from that uniqueness constraint, so the command stays `cdt`,
+# which is just cdtui abbreviated.
+[package]
+name = "cdtui"
+description = "A neo-tree style terminal UI for cd-ing around a directory tree, with ripgrep search."
+keywords = ["cd", "tui", "ripgrep", "navigation", "shell"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+categories.workspace = true
+readme = "../../README.md"
+
+[[bin]]
+name = "cdt"
+path = "src/main.rs"
+
+[dependencies]
+cdt-view.workspace = true
