@@ -263,6 +263,15 @@ mod tests {
     }
 
     #[test]
+    fn target_of_a_directory_is_that_directory() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let mut app = App::new(root.clone());
+        app.mode = Mode::Find(String::new());
+        app.hits = vec![root.join("src")];
+        assert_eq!(app.target(), root.join("src"));
+    }
+
+    #[test]
     fn target_of_a_file_is_its_directory() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let mut app = App::new(root.clone());

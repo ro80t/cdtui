@@ -72,6 +72,16 @@ mod tests {
     }
 
     #[test]
+    fn find_names_matches_directories_too() {
+        // `src` is a directory in this crate: folder names must be searchable,
+        // not just file names.
+        let hits = find_names(&root(), "src", false);
+        let src = root().join("src");
+        assert!(hits.contains(&src), "{hits:?}");
+        assert!(src.is_dir());
+    }
+
+    #[test]
     fn grep_finds_a_string_in_this_file() {
         // Skip where ripgrep isn't installed rather than failing the suite.
         let Ok(hits) = grep(&root(), "MAX_HITS", false) else {
