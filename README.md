@@ -9,8 +9,11 @@ tree, search it with ripgrep, press Enter, and your shell is there.
 ## Install
 
 ```sh
-cargo install cdtui   # the crate is cdtui; the command it installs is cdt, short for cdtui
+cargo install cdtui   # installs two names for the same program: cdt and cdtui
 ```
+
+The crate is `cdtui` because `cdt` was taken on crates.io. Both commands are
+installed, so `cdt` works whether or not you remember the abbreviation.
 
 Needs the `rg` binary on `PATH` for full-text search (`s`); browsing and
 file-name search work without it.
@@ -24,13 +27,18 @@ bash / zsh (`~/.bashrc`, `~/.zshrc`):
 
 ```sh
 cdt() { local d; d=$(command cdt "$@") && [ -n "$d" ] && cd "$d"; }
+cdtui() { cdt "$@"; }   # optional: the long name too
 ```
 
 PowerShell (`$PROFILE`):
 
 ```powershell
 function cdt { $d = cdt.exe @args; if ($d) { Set-Location $d } }
+Set-Alias cdtui cdt   # optional: the long name too
 ```
+
+The wrapper is what does the `cd`, so a name only works once it has one — the
+bare `cdtui` command still just prints a path.
 
 ## Usage
 
@@ -45,11 +53,21 @@ cdt ~/src    # start somewhere else
 | `l` / `Space` / `Tab` | expand / collapse a directory |
 | `h` | collapse, then step out to the parent, then re-root one level up |
 | `g` / `G` | first / last |
-| `/` | search file names (honours `.gitignore`) |
-| `s` | full-text search with ripgrep |
+| `/` | search names — files *and* folders (honours `.gitignore`) |
+| `s` | full-text search of file contents with ripgrep |
 | `.` | toggle hidden files |
 | `Enter` | `cd` there and exit (a file resolves to its directory) |
 | `q` / `Esc` | exit without changing directory |
+
+While `/` or `s` is open every letter types into the query, so `q` and `.`
+search rather than act:
+
+| key | |
+|---|---|
+| `↑` / `↓` / `Tab` | move through the hits |
+| `Backspace` | edit the query |
+| `Enter` | `cd` to the selected hit and exit |
+| `Esc` | back to the tree |
 
 `/` does not need ripgrep installed: it uses ripgrep's own walker (the `ignore`
 crate) as a library. `s` shells out to `rg`.

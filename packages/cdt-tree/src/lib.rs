@@ -22,6 +22,18 @@ pub struct Tree {
     pub hidden: bool,
 }
 
+/// Whether an entry should behave as a directory. `DirEntry::file_type` does
+/// not follow links, so a symlink or Windows junction pointing at a directory
+/// reports `is_dir = false`; left alone it would render as a leaf and refuse
+/// to expand. Only links pay the extra stat.
+fn is_dir(e: &std::fs::DirEntry) -> bool {
+    match e.file_type() {
+        Ok(t) if t.is_dir() => true,
+        Ok(t) if t.is_symlink() => e.path().is_dir(),
+        _ => false,
+    }
+}
+
 /// One directory's entries, directories first then files, case-insensitive.
 pub fn children(dir: &Path, hidden: bool, depth: usize) -> Vec<Entry> {
     let mut v: Vec<Entry> = std::fs::read_dir(dir)
@@ -30,7 +42,7 @@ pub fn children(dir: &Path, hidden: bool, depth: usize) -> Vec<Entry> {
         .flatten()
         .filter(|e| hidden || !e.file_name().to_string_lossy().starts_with('.'))
         .map(|e| Entry {
-            is_dir: e.file_type().map(|t| t.is_dir()).unwrap_or(false),
+            is_dir: is_dir(&e),
             path: e.path(),
             depth,
             open: false,
@@ -145,6 +157,31 @@ mod tests {
         t.toggle(i);
         assert_eq!(t.len(), before);
         assert!(!t.entries[i].open);
+    }
+
+    #[test]
+    fn a_link_to_a_directory_counts_as_a_directory() {
+        let base = std::env::temp_dir().join(format!("cdt-tree-{}", std::process::id()));
+        let real = base.join("real");
+        std::fs::create_dir_all(&real).expect("temp dir");
+        let link = base.join("link");
+
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_dir(&real, &link).is_ok();
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&real, &link).is_ok();
+
+        // Creating a symlink needs admin or Developer Mode on Windows; skip
+        // there rather than failing the suite, as the rg tests do.
+        if made {
+            let kids = children(&base, false, 0);
+            let l = kids
+                .iter()
+                .find(|e| e.name() == "link")
+                .expect("the link is listed");
+            assert!(l.is_dir, "a link to a directory must expand like one");
+        }
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

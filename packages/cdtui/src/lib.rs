@@ -1,4 +1,8 @@
-//! Thin shell: pick a directory, print it on stdout for the shell wrapper.
+//! Thin shell around [`cdt_view::pick`]: choose a directory, print it on
+//! stdout for the shell function to `cd` into.
+//!
+//! Shipped under two command names, `cdt` and `cdtui`, which are both one-line
+//! binaries in `src/bin/` calling [`run`].
 use std::path::PathBuf;
 
 /// The `\\?\` extended-length prefix `canonicalize` adds on Windows.
@@ -22,7 +26,8 @@ fn plain(p: PathBuf) -> PathBuf {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// Pick a directory and print it. Prints nothing if the user quits.
+pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let root = plain(
         std::env::args()
             .nth(1)

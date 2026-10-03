@@ -10,6 +10,12 @@ pub const MAX_HITS: usize = 500;
 /// Paths under `root` whose file name contains `pat` (case-insensitive),
 /// skipping anything .gitignore excludes.
 pub fn find_names(root: &Path, pat: &str, hidden: bool) -> Vec<PathBuf> {
+    // An empty pattern matches every name, which would answer a cleared query
+    // with an arbitrary 500 paths. Nothing typed, nothing found — same as
+    // `grep`, so backspacing a query away empties the hit list either way.
+    if pat.is_empty() {
+        return Vec::new();
+    }
     let pat = pat.to_lowercase();
     ignore::WalkBuilder::new(root)
         .hidden(!hidden)
@@ -79,6 +85,15 @@ mod tests {
         let src = root().join("src");
         assert!(hits.contains(&src), "{hits:?}");
         assert!(src.is_dir());
+    }
+
+    #[test]
+    fn an_empty_pattern_finds_nothing_in_either_backend() {
+        // Clearing the query must empty the hit list, not flood it.
+        assert!(find_names(&root(), "", false).is_empty());
+        if let Ok(hits) = grep(&root(), "", false) {
+            assert!(hits.is_empty());
+        }
     }
 
     #[test]
