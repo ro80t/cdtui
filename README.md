@@ -33,12 +33,34 @@ cdtui() { cdt "$@"; }   # optional: the long name too
 PowerShell (`$PROFILE`):
 
 ```powershell
-function cdt { $d = cdt.exe @args; if ($d) { Set-Location $d } }
+function cdt { $d = cdt.exe @args; if ($d) { Set-Location -LiteralPath $d } }
 Set-Alias cdtui cdt   # optional: the long name too
 ```
 
-The wrapper is what does the `cd`, so a name only works once it has one — the
-bare `cdtui` command still just prints a path.
+`-LiteralPath` matters: without it `Set-Location` reads `[` and `]` in a
+directory name as wildcards and fails to find it.
+
+Command Prompt (`cmd.exe`) has no shell functions, so it needs a file instead —
+[`shell/cdt.cmd`](shell/cdt.cmd) in this repo:
+
+```bat
+for /f "delims=" %%d in ('cdt.exe %*') do cd /d "%%d"
+```
+
+Copy it to a directory on your `PATH` that comes **before**
+`%USERPROFILE%\.cargo\bin`. Within a single directory cmd prefers `.EXE` over
+`.CMD`, so next to `cdt.exe` the wrapper would never run. Check which one wins:
+
+```bat
+where cdt
+```
+
+`cdt.cmd` should be listed first. Note that cmd ends a script when it runs
+another one, so inside your own `.bat` write `call cdt`, not `cdt`.
+
+In every shell the wrapper is what does the `cd`, so a name only works once it
+has one — the bare `cdtui` command still just prints a path. Quitting with `q`
+prints nothing, and each wrapper leaves the directory alone in that case.
 
 ## Usage
 
