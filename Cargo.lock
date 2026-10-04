@@ -151,6 +151,7 @@ name = "cdtui"
 version = "0.2.0"
 dependencies = [
  "cdt-view",
+ "windows-sys",
 ]
 
 [[package]]

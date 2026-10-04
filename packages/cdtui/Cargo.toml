@@ -3,6 +3,9 @@
 # which is just cdtui abbreviated.
 [package]
 name = "cdtui"
+# Both bins are the same program, so `cargo run` should not have to be told
+# which one: without this it fails with "could not determine which binary".
+default-run = "cdt"
 description = "A neo-tree style terminal UI for cd-ing around a directory tree, with ripgrep search."
 keywords = ["cd", "tui", "ripgrep", "navigation", "shell"]
 version.workspace = true
@@ -21,3 +24,12 @@ readme = "../../README.md"
 
 [dependencies]
 cdt-view.workspace = true
+
+# Already in the tree via ratatui/crossterm, so this adds no download or build:
+# it is only needed to read the parent process, which is the one reliable way
+# to tell which shell asked for `--init`.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_System_Diagnostics_ToolHelp",
+] }

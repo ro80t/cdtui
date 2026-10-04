@@ -49,6 +49,25 @@ cargo fmt --all
 Each crate keeps its own unit tests in the file they cover. New non-trivial
 logic gets one test that fails if it breaks — not a suite per function.
 
+### Running the picker while working on it
+
+`cargo run` opens the UI, and `cargo run -- DIR` starts it somewhere else. It
+prints the chosen path and does not cd: the shell wrapper does that, and the
+wrapper calls `cdt` from `PATH`. So to exercise the real thing, including the
+cd, put the build output on `PATH` ahead of the installed copy:
+
+```sh
+cargo build --release
+export PATH="$PWD/target/release:$PATH"   # PowerShell: $env:PATH = "$PWD\target\release;$env:PATH"
+elease;$env:PATH"
+eval "$(cdt --init)"                      # once per shell
+cdt
+```
+
+Then `cargo build --release` is the whole edit-test loop — no reinstall, and
+`cdt --init` picks the right wrapper for whichever shell you are in. On cmd the
+`cdt.cmd` wrapper has to sit in a `PATH` directory ahead of both.
+
 ## Faster builds with sccache
 
 ratatui pulls in ~190 crates, so most of a cold build is dependencies. CI runs
