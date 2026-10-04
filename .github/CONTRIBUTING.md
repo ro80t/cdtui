@@ -53,8 +53,20 @@ logic gets one test that fails if it breaks — not a suite per function.
 
 `cargo run` opens the UI, and `cargo run -- DIR` starts it somewhere else. It
 prints the chosen path and does not cd: the shell wrapper does that, and the
-wrapper calls `cdt` from `PATH`. So to exercise the real thing, including the
-cd, put the build output on `PATH` ahead of the installed copy:
+wrapper calls `cdt` from `PATH`.
+
+To get the cd as well, without installing anything, source the dev launcher:
+
+```sh
+. scripts/dev.sh              # or: . scripts/dev.sh packages
+```
+
+It has to be sourced, not executed — an executed script cds in its own process
+and the result is thrown away with it. Run it and it says so rather than
+failing quietly.
+
+For a longer session, put the build output on `PATH` ahead of the installed
+copy instead and use the real command:
 
 ```sh
 cargo build --release
