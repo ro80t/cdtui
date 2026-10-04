@@ -95,11 +95,43 @@ fn snapshot() -> Option<Vec<Proc>> {
     }
 }
 
-/// On Unix the login shell in `SHELL` is what the user is typing into, and the
-/// nesting that defeats this on Windows does not happen the same way.
+/// The parent pid in a Linux `/proc/<pid>/stat` line.
+///
+/// Not behind a `cfg`, so it is compiled and tested on every platform and not
+/// only where it runs. The second field is the executable name in parentheses
+/// and it may itself contain spaces and parentheses, so the columns are only
+/// unambiguous after the final `)`: `pid (comm) state ppid ...`.
+// Only the tests reach it on Windows; narrowed to that platform so a genuine
+// unused function on Unix is still reported.
+#[cfg_attr(windows, allow(dead_code))]
+fn ppid_from_stat(stat: &str) -> Option<u32> {
+    let after = stat.get(stat.rfind(')')? + 1..)?;
+    after.split_whitespace().nth(1)?.parse().ok()
+}
+
+/// Same walk as on Windows, over `/proc`. `$SHELL` is only the login shell —
+/// it names the wrong one as soon as anything is nested — so it is the last
+/// resort, for systems without `/proc` such as macOS.
 #[cfg(not(windows))]
 pub fn detect() -> Option<&'static str> {
-    classify(&std::env::var("SHELL").ok()?)
+    proc_walk().or_else(|| classify(&std::env::var("SHELL").ok()?))
+}
+
+#[cfg(not(windows))]
+fn proc_walk() -> Option<&'static str> {
+    let mut pid = std::process::id();
+    for _ in 0..MAX_DEPTH {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        pid = ppid_from_stat(&stat)?;
+        if pid == 0 {
+            return None; // reached init's parent
+        }
+        let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+        if let Some(s) = classify(comm.trim()) {
+            return Some(s);
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -137,6 +169,32 @@ mod tests {
                 crate::init_text(shell).is_some(),
                 "{exe} -> {shell} has no snippet"
             );
+        }
+    }
+
+    /// The /proc/stat trap: the comm field is untrusted text that can contain
+    /// spaces and parentheses, so splitting on whitespace from the left reads
+    /// the wrong column and would walk to a nonexistent process.
+    #[test]
+    fn ppid_is_read_from_after_the_last_paren() {
+        assert_eq!(ppid_from_stat("1234 (bash) S 1000 1234 1000 0"), Some(1000));
+        assert_eq!(ppid_from_stat("42 (my proc) S 7 42 7 0"), Some(7));
+        assert_eq!(ppid_from_stat("42 (a) b) S 7 42 7 0"), Some(7));
+        assert_eq!(ppid_from_stat("42 ((nested)) R 99 42"), Some(99));
+        // A shell named so that naive parsing would pick a plausible number.
+        assert_eq!(ppid_from_stat("5 (S 111 222) S 333 5"), Some(333));
+    }
+
+    #[test]
+    fn a_malformed_stat_line_is_rejected_rather_than_guessed() {
+        for s in [
+            "",
+            "no parens here",
+            "1234 (bash)",
+            "1234 (bash) S",
+            "(x) S z",
+        ] {
+            assert_eq!(ppid_from_stat(s), None, "{s:?}");
         }
     }
 
