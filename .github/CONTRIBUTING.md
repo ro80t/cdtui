@@ -58,12 +58,16 @@ wrapper calls `cdt` from `PATH`.
 To get the cd as well, without installing anything, source the dev launcher:
 
 ```sh
-. scripts/dev.sh              # or: . scripts/dev.sh packages
+. scripts/dev.sh                      # or: . scripts/dev.sh packages
+CDT_DIR=packages . scripts/dev.sh     # for a plain POSIX sh
 ```
 
 It has to be sourced, not executed — an executed script cds in its own process
 and the result is thrown away with it. Run it and it says so rather than
-failing quietly.
+failing quietly. Works in bash, zsh and dash/ash on Linux, macOS and Windows
+(Git Bash, MSYS2, Cygwin, WSL). Two things only a plain `sh` needs, because it
+can neither forward `.` arguments nor see the script's own path: pass the start
+directory as `CDT_DIR`, and source it from inside the repo or set `CDT_ROOT`.
 
 For a longer session, put the build output on `PATH` ahead of the installed
 copy instead and use the real command:
@@ -206,16 +210,27 @@ inherits them with `license.workspace = true` and friends.
 - [ ] CI green (that already covers fmt, clippy, tests, MSRV and the dry run)
 - [ ] `cargo package --workspace --list` shows no stray or missing files
 - [ ] `cargo doc --no-deps --workspace` passes (docs.rs builds after publishing)
-- [ ] tag the release (`git tag v0.1.0 && git push --tags`)
-- [ ] `cargo login` with a publish-scoped token from
-      [account settings](https://crates.io/settings/tokens). From CI prefer
-      Trusted Publishing (OIDC) so no long-lived token is stored.
+- [ ] crates.io has a [Trusted Publishing](https://crates.io/docs/trusted-publishing)
+      config for each of the four crates, naming this repo, the `ci.yml`
+      workflow and the `publish` job — one-time setup per crate, done on
+      crates.io, not in this repo
+- [ ] tag the release (`git tag v0.1.0 && git push --tags`) — this triggers
+      the real publish
 
 ### Publish
 
-Cargo 1.90 and later works out the dependency order for the whole workspace:
+`publish` in `.github/workflows/ci.yml` dry-runs on every push and PR, and
+does the real `cargo publish --workspace` when the push is a `v*` tag,
+authenticating over OIDC via Trusted Publishing — no local token needed:
 
 ```sh
+git tag v0.1.0 && git push --tags
+```
+
+To publish from a machine instead (Trusted Publishing is GitHub-Actions-only):
+
+```sh
+cargo login   # publish-scoped token from https://crates.io/settings/tokens
 cargo publish --workspace --dry-run
 cargo publish --workspace
 ```

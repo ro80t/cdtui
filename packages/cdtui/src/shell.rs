@@ -10,24 +10,30 @@
 //! looks past `cargo.exe` to the shell behind it.
 
 /// Shells we can emit a wrapper for, as the name [`crate::snippet`] expects.
+/// `.exe` is stripped before matching, so each shell needs one entry. `dash`
+/// and `ash` are here because they are `/bin/sh` on Debian and Alpine, and the
+/// bash wrapper is verified to work in them. ksh is deliberately absent: its
+/// older releases lack `local`, and an unverified wrapper is worse than the
+/// error telling you to name your shell.
 const KNOWN: &[(&str, &str)] = &[
-    ("cmd.exe", "cmd"),
-    ("powershell.exe", "powershell"),
-    ("pwsh.exe", "powershell"),
-    ("bash.exe", "bash"),
-    ("sh.exe", "bash"),
-    ("zsh.exe", "zsh"),
+    ("cmd", "cmd"),
+    ("powershell", "powershell"),
+    ("pwsh", "powershell"),
     ("bash", "bash"),
     ("sh", "bash"),
+    ("dash", "bash"),
+    ("ash", "bash"),
     ("zsh", "zsh"),
     ("fish", "fish"),
 ];
 
-/// Map an executable's file name to a shell name, ignoring case.
+/// Map an executable's file name to a shell name, ignoring case, path and a
+/// Windows `.exe` suffix.
 fn classify(exe: &str) -> Option<&'static str> {
-    let exe = exe.to_ascii_lowercase();
-    let exe = exe.rsplit(['\\', '/']).next().unwrap_or(&exe);
-    KNOWN.iter().find(|(f, _)| *f == exe).map(|(_, s)| *s)
+    let lower = exe.to_ascii_lowercase();
+    let base = lower.rsplit(['\\', '/']).next().unwrap_or(&lower);
+    let base = base.strip_suffix(".exe").unwrap_or(base);
+    KNOWN.iter().find(|(f, _)| *f == base).map(|(_, s)| *s)
 }
 
 /// Stop climbing eventually: a corrupt snapshot could otherwise loop.
@@ -146,6 +152,15 @@ mod tests {
         assert_eq!(classify("/usr/bin/bash"), Some("bash"));
         assert_eq!(classify("pwsh.exe"), Some("powershell"));
         assert_eq!(classify("PowerShell.exe"), Some("powershell"));
+    }
+
+    /// `/bin/sh` is dash on Debian and ash on Alpine, so a Linux user running
+    /// `cdt --init` under plain sh has to be recognised, not told to guess.
+    #[test]
+    fn the_posix_sh_implementations_are_recognised() {
+        for exe in ["dash", "dash.exe", "/bin/dash", "ash", "sh", "/bin/sh"] {
+            assert_eq!(classify(exe), Some("bash"), "{exe}");
+        }
     }
 
     #[test]
