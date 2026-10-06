@@ -55,19 +55,34 @@ logic gets one test that fails if it breaks — not a suite per function.
 prints the chosen path and does not cd: the shell wrapper does that, and the
 wrapper calls `cdt` from `PATH`.
 
-To get the cd as well, without installing anything, source the dev launcher:
+To get the cd as well, without installing anything, run the dev launcher for
+your shell:
 
 ```sh
-. scripts/dev.sh                      # or: . scripts/dev.sh packages
+. scripts/dev.sh                      # bash/zsh/dash — or: . scripts/dev.sh packages
 CDT_DIR=packages . scripts/dev.sh     # for a plain POSIX sh
 ```
 
-It has to be sourced, not executed — an executed script cds in its own process
-and the result is thrown away with it. Run it and it says so rather than
-failing quietly. Works in bash, zsh and dash/ash on Linux, macOS and Windows
-(Git Bash, MSYS2, Cygwin, WSL). Two things only a plain `sh` needs, because it
-can neither forward `.` arguments nor see the script's own path: pass the start
-directory as `CDT_DIR`, and source it from inside the repo or set `CDT_ROOT`.
+```powershell
+.\scripts\dev.ps1                     # PowerShell — or: .\scripts\dev.ps1 packages
+```
+
+```bat
+scripts\dev.cmd                       :: cmd.exe — or: scripts\dev.cmd packages
+```
+
+`dev.sh` has to be **sourced**, not executed — an executed script cds in its
+own process and the result is thrown away with it. Run it and it says so
+rather than failing quietly. Works in bash, zsh and dash/ash on Linux, macOS
+and Windows (Git Bash, MSYS2, Cygwin, WSL). Two things only a plain `sh`
+needs, because it can neither forward `.` arguments nor see the script's own
+path: pass the start directory as `CDT_DIR`, and source it from inside the
+repo or set `CDT_ROOT`.
+
+`dev.ps1` and `dev.cmd` do **not** need that: a PowerShell script's
+`Set-Location` and a `.cmd` file's `cd` both already run in the caller's own
+process (unlike a POSIX shell executing a script), so calling them directly
+by name is enough — no dot-sourcing, no `call`.
 
 For a longer session, put the build output on `PATH` ahead of the installed
 copy instead and use the real command:
