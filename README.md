@@ -22,36 +22,31 @@ file-name search work without it.
 
 A process cannot change its parent's directory, so `cdt` draws its UI on stderr
 and prints only the chosen path to stdout. A one-line shell wrapper does the
-`cd`, and `cdt --init` prints it, detecting your shell from the parent process:
-
-bash / zsh — add to `~/.bashrc` or `~/.zshrc`:
+`cd`:
 
 ```sh
-eval "$(cdt --init)"
+cdt install
 ```
 
-PowerShell — add to `$PROFILE`:
+This writes the wrapper into every shell found on the machine: `~/.bashrc`,
+`~/.zshrc`, the PowerShell profile (`$PROFILE`), and — since cmd has no
+functions — a `cdt.cmd` on `PATH` (`%USERPROFILE%\bin\cdt.cmd`). Existing
+content in those files is left alone; re-running `install` updates its own
+block in place rather than duplicating it.
 
-```powershell
-cdt --init | Out-String | Invoke-Expression
-```
+Name one or more shells to set up only those: `cdt install powershell`
+(`bash`, `zsh`, `powershell`, `cmd`). `cdt uninstall` removes exactly what
+`install` added, the same way.
 
-Command Prompt has no shell functions, so it needs a file on `PATH` instead:
-
-```bat
-cdt --init > "%USERPROFILE%\bin\cdt.cmd"
-```
-
-Put that directory on `PATH` **before** `%USERPROFILE%\.cargo\bin`. Within a
-single directory cmd prefers `.EXE` over `.CMD`, so next to `cdt.exe` the
-wrapper would never run; `where cdt` should list `cdt.cmd` first. Inside your
+For cmd specifically, `cdt.cmd`'s directory still has to be on `PATH`
+**before** `%USERPROFILE%\.cargo\bin` — within a single directory cmd prefers
+`.EXE` over `.CMD`, so next to `cdt.exe` the wrapper would never run; `where
+cdt` should list `cdt.cmd` first. `install` says so if it isn't. Inside your
 own `.bat`, write `call cdt` — cmd ends a script when it runs another one.
 
-Pass a shell name to override the detection: `cdt --init powershell`.
-
-Until a wrapper is in place `cdt` prints the path and says so on stderr, with
-the line to add for the shell you are in, rather than appearing to do nothing.
-Quitting with `q` prints nothing and leaves the directory alone.
+Until a wrapper is in place `cdt` prints the path and says so on stderr,
+rather than appearing to do nothing. Quitting with `q` prints nothing and
+leaves the directory alone.
 
 ## Usage
 

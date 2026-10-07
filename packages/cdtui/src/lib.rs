@@ -2,17 +2,18 @@
 //! stdout for the shell wrapper to `cd` into.
 //!
 //! A process cannot change its parent's working directory, so the `cd` has to
-//! happen in the shell. [`snippet`] carries the wrapper for each shell and
-//! `--init` prints it, which keeps one copy of it instead of one in the code
-//! and another drifting in the README. When nobody is capturing stdout the
-//! printed path would go nowhere, so [`run`] says so rather than looking broken.
+//! happen in the shell. [`snippet`] carries the wrapper for each shell, and
+//! [`setup`] writes it into the right rc file (or `.cmd` file) so nobody has
+//! to paste it by hand. When nobody is capturing stdout the printed path
+//! would go nowhere, so [`run`] says so rather than looking broken.
 //!
 //! Shipped under two command names, `cdt` and `cdtui`, which are both one-line
 //! binaries in `src/bin/` calling [`run`].
-use clap::{CommandFactory, Parser};
+use clap::{CommandFactory, Parser, Subcommand};
 use std::io::IsTerminal;
 use std::path::PathBuf;
 
+mod setup;
 mod shell;
 
 /// Names clap's own usage/options text, generated from the doc comments
@@ -20,7 +21,8 @@ mod shell;
 /// actual flags. `-h`/`--help` is still handled by hand in [`run`] — clap's
 /// built-in flag would print straight to stdout, which is the path channel —
 /// so `render_help` is called explicitly and the result goes to stderr.
-/// `--version` was never a flag here, so it stays disabled.
+/// `--version` was never a flag here, and `disable_help_subcommand` turns off
+/// clap's own `cdt help`, which would print to stdout for the same reason.
 #[derive(Parser)]
 #[command(
     name = "cdt",
@@ -28,13 +30,12 @@ mod shell;
     after_help = KEYS,
     disable_help_flag = true,
     disable_version_flag = true,
+    disable_help_subcommand = true,
     color = clap::ColorChoice::Never
 )]
 struct Cli {
-    /// Print the shell wrapper that performs the `cd`, detecting the shell
-    /// from the parent process, or pass SHELL explicitly.
-    #[arg(long, num_args = 0..=1, value_name = "SHELL")]
-    init: Option<Option<String>>,
+    #[command(subcommand)]
+    command: Option<Command>,
 
     /// Print this help and exit.
     #[arg(short = 'h', long = "help")]
@@ -42,6 +43,18 @@ struct Cli {
 
     /// Browse from DIR, or the current directory.
     dir: Option<PathBuf>,
+}
+
+/// A process cannot change its parent shell's directory, so one of these has
+/// to run first.
+#[derive(Subcommand)]
+enum Command {
+    /// Write the wrapper into every shell this machine has (or just the
+    /// SHELLS named).
+    Install { shells: Vec<String> },
+    /// Remove the wrapper `install` added, from every shell this machine has
+    /// (or just the SHELLS named).
+    Uninstall { shells: Vec<String> },
 }
 
 /// The part clap cannot generate: how the picker behaves once it opens.
@@ -52,7 +65,8 @@ wrapper can capture it. Without the wrapper the path is printed and nothing
 moves. Keys: j/k move, l expand, h up, / find names, s grep contents,
 . hidden, Enter cd, q quit.";
 
-/// The shells `--init` can emit a wrapper for, as shown in error messages.
+/// The shells `install`/`uninstall` know a wrapper for, as shown in error
+/// messages.
 const SHELLS: &str = "bash | zsh | powershell | cmd";
 
 /// The `\\?\` extended-length prefix `canonicalize` adds on Windows.
@@ -100,28 +114,7 @@ for /f "delims=" %%d in ('cdt.exe %*') do cd /d "%%d"
 const NO_WRAPPER: &str = "\
 cdt: printed the path above but could not cd — a program cannot change its
      parent shell's directory, so a one-line shell wrapper has to do it.
-";
-
-/// The setup line for one shell, or every shell when we cannot tell which.
-fn setup_hint(shell: Option<&str>) -> String {
-    let one = match shell {
-        Some("bash" | "zsh" | "sh") => "  eval \"$(cdt --init)\"          # add to ~/.bashrc\n",
-        Some("powershell" | "pwsh") => {
-            "  cdt --init | Out-String | Invoke-Expression          # add to $PROFILE\n"
-        }
-        Some("cmd" | "bat") => {
-            "  cdt --init > \"%USERPROFILE%\\bin\\cdt.cmd\"\n  \
-             then put that directory on PATH before %USERPROFILE%\\.cargo\\bin\n"
-        }
-        // Detection failed, or a shell with no wrapper: offer the lot.
-        _ => {
-            "  bash/zsh    eval \"$(cdt --init bash)\"\n  \
-             PowerShell  cdt --init powershell | Out-String | Invoke-Expression\n  \
-             cmd.exe     cdt --init cmd > \"%USERPROFILE%\\bin\\cdt.cmd\"\n"
-        }
-    };
-    format!("{NO_WRAPPER}\n{one}\nRun `cdt --help` for the rest.").to_string()
-}
+     Run `cdt install` to set one up, or see `cdt --help`.";
 
 /// The wrapper source for `shell`, or `None` if that shell is not supported.
 fn snippet(shell: &str) -> Option<&'static str> {
@@ -133,15 +126,53 @@ fn snippet(shell: &str) -> Option<&'static str> {
     }
 }
 
-/// The wrapper for `shell` as it should be written out. The cmd one is
-/// redirected straight into a `.cmd` file, and cmd can mis-parse a batch file
-/// with bare LF line endings, so that one goes out as CRLF.
-pub fn init_text(shell: &str) -> Option<String> {
+/// The wrapper for `shell` as it should be written out. The cmd one goes out
+/// as CRLF: it is saved straight to a `.cmd` file, and cmd can mis-parse a
+/// batch file with bare LF line endings.
+pub fn wrapper_text(shell: &str) -> Option<String> {
     let s = snippet(shell)?;
     Some(match shell {
         "cmd" | "bat" => s.replace('\n', "\r\n"),
         _ => s.to_owned(),
     })
+}
+
+/// Resolve `names` to canonical shell keys — every shell this machine has,
+/// if none were named — run `action` for each, and report every result
+/// before failing, so one bad name does not hide what happened to the rest.
+fn setup_many(
+    names: Vec<String>,
+    verb: &str,
+    action: impl Fn(&str) -> Result<String, Box<dyn std::error::Error>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let names: Vec<String> = if names.is_empty() {
+        setup::detected().into_iter().map(str::to_owned).collect()
+    } else {
+        names
+    };
+    if names.is_empty() {
+        eprintln!("cdt: no shell found on this machine to {verb} — name one: cdt {verb} <shell> ({SHELLS})");
+        return Ok(());
+    }
+    let mut failed = false;
+    for name in names {
+        let outcome = match shell::classify(&name).filter(|s| snippet(s).is_some()) {
+            Some(canon) => action(canon),
+            None => Err(format!("no wrapper for {name:?}: supported shells are {SHELLS}").into()),
+        };
+        match outcome {
+            Ok(msg) => eprintln!("{msg}"),
+            Err(e) => {
+                eprintln!("cdt: {e}");
+                failed = true;
+            }
+        }
+    }
+    if failed {
+        Err("some shells could not be set up; see above".into())
+    } else {
+        Ok(())
+    }
 }
 
 /// Pick a directory and print it. Prints nothing if the user quits.
@@ -161,23 +192,12 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    if let Some(named) = cli.init {
-        // No shell named: read it off the parent process. An explicit name
-        // still wins, for the cases detection cannot see (a profile being
-        // generated for another machine, say).
-        let shell = match named {
-            Some(s) => s,
-            None => shell::detect()
-                .ok_or(format!(
-                    "could not tell which shell this is — name it: cdt --init {SHELLS}"
-                ))?
-                .to_owned(),
-        };
-        let Some(s) = init_text(&shell) else {
-            return Err(format!("no wrapper for {shell:?}: supported shells are {SHELLS}").into());
-        };
-        print!("{s}");
-        return Ok(());
+    match cli.command {
+        Some(Command::Install { shells }) => return setup_many(shells, "install", setup::install),
+        Some(Command::Uninstall { shells }) => {
+            return setup_many(shells, "uninstall", setup::uninstall);
+        }
+        None => {}
     }
 
     let root = plain(
@@ -190,7 +210,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         // stdout still being a console means no wrapper captured the path, so
         // the cd silently did not happen. Say why instead of looking broken.
         if std::io::stdout().is_terminal() {
-            eprintln!("{}", setup_hint(shell::detect()));
+            eprintln!("{NO_WRAPPER}");
         }
     }
     Ok(())
@@ -284,47 +304,17 @@ mod tests {
         assert!(t.contains("%%d"), "{t}");
     }
 
-    /// The cmd wrapper is redirected into a .cmd file, which cmd can mis-parse
-    /// with bare LF endings; the shell snippets must stay LF.
+    /// The cmd wrapper is written straight to a .cmd file, which cmd can
+    /// mis-parse with bare LF endings; the shell snippets must stay LF.
     #[test]
     fn only_the_cmd_wrapper_is_written_with_crlf() {
-        let cmd = init_text("cmd").unwrap();
+        let cmd = wrapper_text("cmd").unwrap();
         assert!(cmd.contains("\r\n"), "cmd wrapper must be CRLF");
         assert!(!cmd.contains("\n\n"), "no bare LF should survive: {cmd:?}");
         assert_eq!(cmd.matches('\n').count(), cmd.matches("\r\n").count());
 
         for s in ["bash", "powershell"] {
-            assert!(!init_text(s).unwrap().contains('\r'), "{s} must stay LF");
-        }
-    }
-
-    /// The hint has to name a command that works, and the detecting form is
-    /// the one we now tell people to use.
-    #[test]
-    fn the_hint_names_the_command_for_the_detected_shell() {
-        // Each shell gets its own one-liner, and it must be a command that
-        // exists: the whole point is that the user can paste it and be done.
-        for (sh, must) in [
-            ("bash", "eval"),
-            ("zsh", "eval"),
-            ("powershell", "Invoke-Expression"),
-            ("cmd", "cdt.cmd"),
-        ] {
-            let h = setup_hint(Some(sh));
-            assert!(h.contains("--init"), "{sh}: no --init");
-            assert!(
-                h.contains(must),
-                "{sh}: missing {must}
-{h}"
-            );
-        }
-
-        // Unknown or undetectable falls back to listing them all.
-        for u in [None, Some("fish")] {
-            let h = setup_hint(u);
-            for must in ["bash", "powershell", "cmd"] {
-                assert!(h.contains(must), "{u:?}: missing {must}");
-            }
+            assert!(!wrapper_text(s).unwrap().contains('\r'), "{s} must stay LF");
         }
     }
 }

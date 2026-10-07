@@ -202,7 +202,6 @@ version = "0.3.0"
 dependencies = [
  "cdt-view",
  "clap",
- "windows-sys",
 ]
 
 [[package]]
