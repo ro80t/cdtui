@@ -24,7 +24,7 @@ pub(crate) fn draw(f: &mut Frame, app: &App) {
             .block(
                 Block::new()
                     .borders(Borders::ALL)
-                    .title(format!(" {} ", app.tree.root.display())),
+                    .title(format!(" {} ", app.tree.display_root())),
             )
             .highlight_style(Style::new().reversed()),
         body,

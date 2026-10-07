@@ -11,8 +11,13 @@ pub struct Entry {
 }
 
 impl Entry {
+    /// A drive root (`C:\`) has no file name, so it would otherwise render as
+    /// a blank row; show the path itself for anything like that.
     pub fn name(&self) -> std::borrow::Cow<'_, str> {
-        self.path.file_name().unwrap_or_default().to_string_lossy()
+        match self.path.file_name() {
+            Some(n) => n.to_string_lossy(),
+            None => self.path.to_string_lossy(),
+        }
     }
 }
 
@@ -52,6 +57,36 @@ pub fn children(dir: &Path, hidden: bool, depth: usize) -> Vec<Entry> {
     v
 }
 
+/// The drive letters that exist, as `C:\`-style roots. std has no API for
+/// this, so each letter is probed; cheap enough since it only runs when
+/// stepping up from a drive root. Windows only — other platforms have one
+/// root (`/`) already, nothing to list.
+#[cfg(windows)]
+fn drives() -> Vec<PathBuf> {
+    (b'A'..=b'Z')
+        .map(|b| PathBuf::from(format!("{}:\\", b as char)))
+        .filter(|p| p.metadata().is_ok())
+        .collect()
+}
+
+/// `root`'s entries — real directory listing, except the empty path, which
+/// [`Tree::up`] uses on Windows as the synthetic level above any one drive.
+fn load(root: &Path, hidden: bool, depth: usize) -> Vec<Entry> {
+    #[cfg(windows)]
+    if root.as_os_str().is_empty() {
+        return drives()
+            .into_iter()
+            .map(|path| Entry {
+                path,
+                depth,
+                is_dir: true,
+                open: false,
+            })
+            .collect();
+    }
+    children(root, hidden, depth)
+}
+
 /// Number of entries right after `i` that are nested under it.
 pub fn descendants(entries: &[Entry], i: usize) -> usize {
     let d = entries[i].depth;
@@ -61,10 +96,19 @@ pub fn descendants(entries: &[Entry], i: usize) -> usize {
 impl Tree {
     pub fn new(root: PathBuf, hidden: bool) -> Self {
         Tree {
-            entries: children(&root, hidden, 0),
+            entries: load(&root, hidden, 0),
             root,
             hidden,
         }
+    }
+
+    /// `root`, or — on the synthetic drives level — a label for it, since an
+    /// empty path would otherwise render as a blank title bar.
+    pub fn display_root(&self) -> std::borrow::Cow<'_, str> {
+        if self.root.as_os_str().is_empty() {
+            return "This PC".into();
+        }
+        self.root.to_string_lossy()
     }
 
     pub fn len(&self) -> usize {
@@ -80,7 +124,7 @@ impl Tree {
     }
 
     pub fn reload(&mut self) {
-        self.entries = children(&self.root, self.hidden, 0);
+        self.entries = load(&self.root, self.hidden, 0);
     }
 
     /// Expand or collapse the directory at `i`. No-op on files.
@@ -109,14 +153,23 @@ impl Tree {
         self.entries[..i].iter().rposition(|e| e.depth < d)
     }
 
-    /// Re-root one directory up. False at the filesystem root.
+    /// Re-root one directory up. At a drive root on Windows, steps out to the
+    /// synthetic drives level ([`load`]) instead of stopping, since `C:\` has
+    /// no parent the way nested directories do. False once there is truly
+    /// nothing above (the drives level itself, or `/` on other platforms).
     pub fn up(&mut self) -> bool {
-        let Some(parent) = self.root.parent().map(Path::to_path_buf) else {
-            return false;
-        };
-        self.root = parent;
-        self.reload();
-        true
+        if let Some(parent) = self.root.parent() {
+            self.root = parent.to_path_buf();
+            self.reload();
+            return true;
+        }
+        #[cfg(windows)]
+        if !self.root.as_os_str().is_empty() {
+            self.root = PathBuf::new();
+            self.reload();
+            return true;
+        }
+        false
     }
 }
 
@@ -193,5 +246,33 @@ mod tests {
         };
         assert_eq!(t.parent_of(0), None);
         assert_eq!(t.parent_of(2), Some(1));
+    }
+
+    /// The core contract this module exists for: Windows has no single root,
+    /// so stepping up from a drive has to surface the other drives instead of
+    /// just stopping, and stop for real once that level is reached.
+    #[cfg(windows)]
+    #[test]
+    fn up_crosses_from_a_drive_root_to_the_drives_level_and_then_stops() {
+        let mut t = Tree::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")), false);
+        while t.up() {} // walk out past every ancestor directory
+        assert!(t.root.as_os_str().is_empty(), "{:?}", t.root);
+        assert!(!t.entries.is_empty(), "no drives listed");
+        assert!(t.entries.iter().all(|e| e.is_dir));
+        assert_eq!(t.display_root(), "This PC");
+
+        // The current drive must be among them, named without a blank row.
+        let cur = std::env::current_dir().unwrap();
+        let letter = cur.to_string_lossy().chars().next().unwrap();
+        let want = PathBuf::from(format!("{letter}:\\"));
+        assert!(
+            t.entries
+                .iter()
+                .any(|e| e.path == want && !e.name().is_empty()),
+            "{want:?} not in {:?}",
+            t.entries.iter().map(|e| &e.path).collect::<Vec<_>>()
+        );
+
+        assert!(!t.up(), "nothing above the drives level");
     }
 }
