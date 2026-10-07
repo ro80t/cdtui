@@ -9,10 +9,51 @@
 //!
 //! Shipped under two command names, `cdt` and `cdtui`, which are both one-line
 //! binaries in `src/bin/` calling [`run`].
+use clap::{CommandFactory, Parser};
 use std::io::IsTerminal;
 use std::path::PathBuf;
 
 mod shell;
+
+/// Names clap's own usage/options text, generated from the doc comments
+/// below, so it is not retyped by hand and cannot drift out of sync with the
+/// actual flags. `-h`/`--help` is still handled by hand in [`run`] — clap's
+/// built-in flag would print straight to stdout, which is the path channel —
+/// so `render_help` is called explicitly and the result goes to stderr.
+/// `--version` was never a flag here, so it stays disabled.
+#[derive(Parser)]
+#[command(
+    name = "cdt",
+    about = "pick a directory in a TUI and cd there.",
+    after_help = KEYS,
+    disable_help_flag = true,
+    disable_version_flag = true,
+    color = clap::ColorChoice::Never
+)]
+struct Cli {
+    /// Print the shell wrapper that performs the `cd`, detecting the shell
+    /// from the parent process, or pass SHELL explicitly.
+    #[arg(long, num_args = 0..=1, value_name = "SHELL")]
+    init: Option<Option<String>>,
+
+    /// Print this help and exit.
+    #[arg(short = 'h', long = "help")]
+    help: bool,
+
+    /// Browse from DIR, or the current directory.
+    dir: Option<PathBuf>,
+}
+
+/// The part clap cannot generate: how the picker behaves once it opens.
+/// Appended after the flag/argument listing via `after_help`.
+const KEYS: &str = "\
+The picker draws on stderr and prints only the chosen path on stdout, so the
+wrapper can capture it. Without the wrapper the path is printed and nothing
+moves. Keys: j/k move, l expand, h up, / find names, s grep contents,
+. hidden, Enter cd, q quit.";
+
+/// The shells `--init` can emit a wrapper for, as shown in error messages.
+const SHELLS: &str = "bash | zsh | powershell | cmd";
 
 /// The `\\?\` extended-length prefix `canonicalize` adds on Windows.
 const VERBATIM: &str = r#"\\?\"#;
@@ -82,21 +123,6 @@ fn setup_hint(shell: Option<&str>) -> String {
     format!("{NO_WRAPPER}\n{one}\nRun `cdt --help` for the rest.").to_string()
 }
 
-const HELP: &str = "\
-cdt — pick a directory in a TUI and cd there.
-
-  cdt [DIR]            browse from DIR, or the current directory
-  cdt --init           print the shell wrapper that performs the cd,
-                       detecting the shell from the parent process
-  cdt --init SHELL     the same, for a named shell
-                       (bash | zsh | powershell | cmd)
-  cdt --help           this text
-
-The picker draws on stderr and prints only the chosen path on stdout, so the
-wrapper can capture it. Without the wrapper the path is printed and nothing
-moves. Keys: j/k move, l expand, h up, / find names, s grep contents,
-. hidden, Enter cd, q quit.";
-
 /// The wrapper source for `shell`, or `None` if that shell is not supported.
 fn snippet(shell: &str) -> Option<&'static str> {
     match shell {
@@ -120,41 +146,42 @@ pub fn init_text(shell: &str) -> Option<String> {
 
 /// Pick a directory and print it. Prints nothing if the user quits.
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.first().map(String::as_str) {
-        // Help goes to stderr on purpose: stdout is the path channel, and a
-        // wrapper would otherwise try to cd into this text.
-        Some("-h" | "--help") => {
-            eprintln!("{HELP}");
-            return Ok(());
-        }
-        Some("--init") => {
-            // No shell named: read it off the parent process. An explicit name
-            // still wins, for the cases detection cannot see (a profile being
-            // generated for another machine, say).
-            let named = args.get(1).cloned();
-            let shell = match named {
-                Some(s) => s,
-                None => shell::detect()
-                    .ok_or("could not tell which shell this is — name it: cdt --init bash | zsh | powershell | cmd")?
-                    .to_owned(),
-            };
-            let Some(s) = init_text(&shell) else {
-                return Err(format!(
-                    "no wrapper for {shell:?}: supported shells are bash, zsh, powershell and cmd"
-                )
-                .into());
-            };
-            print!("{s}");
-            return Ok(());
-        }
-        _ => {}
+    // A bad flag exits here with clap's own "error: unexpected argument ..."
+    // on stderr, rather than falling through and being canonicalized as a
+    // bogus directory.
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => e.exit(),
+    };
+
+    // Help goes to stderr on purpose: stdout is the path channel, and a
+    // wrapper would otherwise try to cd into this text.
+    if cli.help {
+        eprint!("{}", Cli::command().render_help());
+        return Ok(());
+    }
+
+    if let Some(named) = cli.init {
+        // No shell named: read it off the parent process. An explicit name
+        // still wins, for the cases detection cannot see (a profile being
+        // generated for another machine, say).
+        let shell = match named {
+            Some(s) => s,
+            None => shell::detect()
+                .ok_or(format!(
+                    "could not tell which shell this is — name it: cdt --init {SHELLS}"
+                ))?
+                .to_owned(),
+        };
+        let Some(s) = init_text(&shell) else {
+            return Err(format!("no wrapper for {shell:?}: supported shells are {SHELLS}").into());
+        };
+        print!("{s}");
+        return Ok(());
     }
 
     let root = plain(
-        args.into_iter()
-            .next()
-            .map(PathBuf::from)
+        cli.dir
             .unwrap_or(std::env::current_dir()?)
             .canonicalize()?,
     );
