@@ -63,6 +63,9 @@ enum Command {
     /// Report which shells have the wrapper installed, and whether `rg` is
     /// on PATH for full-text search.
     Health,
+    /// Print a tab-completion script for SHELL on stdout, e.g.
+    /// `cdt completions zsh >> ~/.zshrc`.
+    Completions { shell: clap_complete::Shell },
 }
 
 /// The part clap cannot generate: how the picker behaves once it opens.
@@ -239,6 +242,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(Command::Health) => {
             health();
+            return Ok(());
+        }
+        // Unlike the picker, this is explicit opt-in output meant to be
+        // captured (`>> ~/.zshrc` or `eval "$(...)"`), so stdout is correct
+        // here and not the path channel's rule.
+        Some(Command::Completions { shell }) => {
+            clap_complete::generate(shell, &mut Cli::command(), "cdt", &mut std::io::stdout());
             return Ok(());
         }
         None => {}
