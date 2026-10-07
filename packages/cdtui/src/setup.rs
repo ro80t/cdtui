@@ -32,7 +32,8 @@ pub fn detected() -> Vec<&'static str> {
     found
 }
 
-fn on_path(bin: &str) -> bool {
+/// Also used by `cdt health` to check for `rg`, which is not a shell.
+pub(crate) fn on_path(bin: &str) -> bool {
     let Some(paths) = std::env::var_os("PATH") else {
         return false;
     };
@@ -87,7 +88,7 @@ fn cmd_path() -> io::Result<PathBuf> {
 /// wrapper text `--init` used to print.
 fn block(shell: &str) -> String {
     let body = crate::wrapper_text(shell).expect("only called for bash, zsh and powershell");
-    format!("{BEGIN}\n{body}{END}\n")
+    format!("{BEGIN}\n{body}{END}\n").to_string()
 }
 
 /// Drop a previously-inserted block, identified by its markers alone so it
@@ -100,6 +101,20 @@ fn without_block(text: &str) -> Option<String> {
     let rest = &text[end..];
     out.push_str(rest.strip_prefix('\n').unwrap_or(rest));
     Some(out)
+}
+
+/// Whether `shell` currently has the wrapper `install` would write — used by
+/// `cdt health` to report status without changing anything.
+pub fn installed(shell: &str) -> bool {
+    if shell == "cmd" {
+        return cmd_path().ok().is_some_and(|p| {
+            fs::read_to_string(p).ok().as_deref() == crate::wrapper_text("cmd").as_deref()
+        });
+    }
+    rc_path(shell)
+        .ok()
+        .and_then(|p| fs::read_to_string(p).ok())
+        .is_some_and(|text| text.contains(BEGIN))
 }
 
 pub fn install(shell: &str) -> Result<String, Box<dyn Error>> {
@@ -117,7 +132,10 @@ pub fn install(shell: &str) -> Result<String, Box<dyn Error>> {
     }
     text.push_str(&block(shell));
     fs::write(&path, text)?;
-    Ok(format!("{shell}: wrote the wrapper into {}", path.display()))
+    Ok(format!(
+        "{shell}: wrote the wrapper into {}",
+        path.display()
+    ))
 }
 
 pub fn uninstall(shell: &str) -> Result<String, Box<dyn Error>> {
@@ -126,12 +144,18 @@ pub fn uninstall(shell: &str) -> Result<String, Box<dyn Error>> {
     }
     let path = rc_path(shell)?;
     let Ok(existing) = fs::read_to_string(&path) else {
-        return Ok(format!("{shell}: nothing to remove ({} not found)", path.display()));
+        return Ok(format!(
+            "{shell}: nothing to remove ({} not found)",
+            path.display()
+        ));
     };
     match without_block(&existing) {
         Some(text) => {
             fs::write(&path, text)?;
-            Ok(format!("{shell}: removed the wrapper from {}", path.display()))
+            Ok(format!(
+                "{shell}: removed the wrapper from {}",
+                path.display()
+            ))
         }
         None => Ok(format!("{shell}: no cdt block found in {}", path.display())),
     }
@@ -142,7 +166,10 @@ fn install_cmd() -> Result<String, Box<dyn Error>> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    fs::write(&path, crate::wrapper_text("cmd").expect("cmd has a wrapper"))?;
+    fs::write(
+        &path,
+        crate::wrapper_text("cmd").expect("cmd has a wrapper"),
+    )?;
     Ok(format!("cmd: wrote {}{}", path.display(), path_hint(&path)))
 }
 
@@ -157,7 +184,10 @@ fn uninstall_cmd() -> Result<String, Box<dyn Error>> {
             "cmd: {} does not match what cdt would write — left it alone",
             path.display()
         )),
-        Err(_) => Ok(format!("cmd: nothing to remove ({} not found)", path.display())),
+        Err(_) => Ok(format!(
+            "cmd: nothing to remove ({} not found)",
+            path.display()
+        )),
     }
 }
 
@@ -165,10 +195,11 @@ fn uninstall_cmd() -> Result<String, Box<dyn Error>> {
 /// is on `PATH` ahead of `.cargo\bin` — something `install` cannot set up
 /// itself without touching the registry, so it only says so when missing.
 fn path_hint(file: &Path) -> String {
-    let Some(dir) = file.parent() else { return String::new() };
-    let on_path = std::env::var_os("PATH").is_some_and(|paths| {
-        std::env::split_paths(&paths).any(|p| p == dir)
-    });
+    let Some(dir) = file.parent() else {
+        return String::new();
+    };
+    let on_path = std::env::var_os("PATH")
+        .is_some_and(|paths| std::env::split_paths(&paths).any(|p| p == dir));
     if on_path {
         String::new()
     } else {
@@ -176,6 +207,7 @@ fn path_hint(file: &Path) -> String {
             " — add {} to PATH, before %USERPROFILE%\\.cargo\\bin, for it to take effect",
             dir.display()
         )
+        .to_string()
     }
 }
 

@@ -48,6 +48,10 @@ Until a wrapper is in place `cdt` prints the path and says so on stderr,
 rather than appearing to do nothing. Quitting with `q` prints nothing and
 leaves the directory alone.
 
+`cdt health` reports which shells have the wrapper installed, and whether
+`rg` is on `PATH` for full-text search — a status check, not a gate; it
+always exits 0.
+
 ## Usage
 
 ```sh

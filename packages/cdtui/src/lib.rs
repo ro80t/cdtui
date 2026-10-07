@@ -55,6 +55,9 @@ enum Command {
     /// Remove the wrapper `install` added, from every shell this machine has
     /// (or just the SHELLS named).
     Uninstall { shells: Vec<String> },
+    /// Report which shells have the wrapper installed, and whether `rg` is
+    /// on PATH for full-text search.
+    Health,
 }
 
 /// The part clap cannot generate: how the picker behaves once it opens.
@@ -151,7 +154,9 @@ fn setup_many(
         names
     };
     if names.is_empty() {
-        eprintln!("cdt: no shell found on this machine to {verb} — name one: cdt {verb} <shell> ({SHELLS})");
+        eprintln!(
+            "cdt: no shell found on this machine to {verb} — name one: cdt {verb} <shell> ({SHELLS})"
+        );
         return Ok(());
     }
     let mut failed = false;
@@ -173,6 +178,29 @@ fn setup_many(
     } else {
         Ok(())
     }
+}
+
+/// `cdt health`: a report, not a gate — it always exits 0, same as `brew
+/// doctor` or `flutter doctor`, since nothing here stops the picker working.
+fn health() {
+    let shells = setup::detected();
+    if shells.is_empty() {
+        eprintln!("cdt: no supported shell found on this machine ({SHELLS})");
+    }
+    for shell in shells {
+        let state = if setup::installed(shell) {
+            "wrapper installed"
+        } else {
+            "wrapper not installed — run `cdt install`"
+        };
+        eprintln!("{shell}: {state}");
+    }
+    let rg = if setup::on_path("rg") {
+        "found — full-text search (s) available"
+    } else {
+        "not found — browsing and name search (/) still work, but s needs it"
+    };
+    eprintln!("rg: {rg}");
 }
 
 /// Pick a directory and print it. Prints nothing if the user quits.
@@ -197,14 +225,14 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         Some(Command::Uninstall { shells }) => {
             return setup_many(shells, "uninstall", setup::uninstall);
         }
+        Some(Command::Health) => {
+            health();
+            return Ok(());
+        }
         None => {}
     }
 
-    let root = plain(
-        cli.dir
-            .unwrap_or(std::env::current_dir()?)
-            .canonicalize()?,
-    );
+    let root = plain(cli.dir.unwrap_or(std::env::current_dir()?).canonicalize()?);
     if let Some(dir) = cdt_view::pick(root)? {
         println!("{}", dir.display());
         // stdout still being a console means no wrapper captured the path, so
