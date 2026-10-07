@@ -21,8 +21,9 @@ mod shell;
 /// actual flags. `-h`/`--help` is still handled by hand in [`run`] — clap's
 /// built-in flag would print straight to stdout, which is the path channel —
 /// so `render_help` is called explicitly and the result goes to stderr.
-/// `--version` was never a flag here, and `disable_help_subcommand` turns off
-/// clap's own `cdt help`, which would print to stdout for the same reason.
+/// `-V`/`--version` is handled the same way, printed to stderr by hand, and
+/// `disable_help_subcommand` turns off clap's own `cdt help`, which would
+/// print to stdout for the same reason.
 #[derive(Parser)]
 #[command(
     name = "cdt",
@@ -40,6 +41,10 @@ struct Cli {
     /// Print this help and exit.
     #[arg(short = 'h', long = "help")]
     help: bool,
+
+    /// Print version and exit.
+    #[arg(short = 'V', long = "version")]
+    version: bool,
 
     /// Browse from DIR, or the current directory.
     dir: Option<PathBuf>,
@@ -217,6 +222,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // wrapper would otherwise try to cd into this text.
     if cli.help {
         eprint!("{}", Cli::command().render_help());
+        return Ok(());
+    }
+
+    // Same reasoning as --help: stdout is the path channel, so this goes to
+    // stderr rather than clap's own (disabled) --version flag.
+    if cli.version {
+        eprintln!("cdt {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
 
