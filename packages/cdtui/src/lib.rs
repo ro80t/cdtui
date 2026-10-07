@@ -79,7 +79,7 @@ fn setup_hint(shell: Option<&str>) -> String {
              cmd.exe     cdt --init cmd > \"%USERPROFILE%\\bin\\cdt.cmd\"\n"
         }
     };
-    format!("{NO_WRAPPER}\n{one}\nRun `cdt --help` for the rest.")
+    format!("{NO_WRAPPER}\n{one}\nRun `cdt --help` for the rest.").to_string()
 }
 
 const HELP: &str = "\
