@@ -80,8 +80,63 @@ fn powershell_profile() -> io::Result<PathBuf> {
     }
 }
 
-fn cmd_path() -> io::Result<PathBuf> {
-    Ok(home()?.join("bin/cdt.cmd"))
+/// Where the doskey macro definitions live. Any name/extension would do —
+/// `doskey /macrofile` just reads lines, it is not executed as a script —
+/// this one just reads clearly in a directory listing.
+fn doskey_path() -> io::Result<PathBuf> {
+    Ok(home()?.join(".cdt-doskey.cmd"))
+}
+
+/// The registry value that makes every new `cmd.exe` session load our
+/// macro file automatically — the closest thing cmd has to "source an rc
+/// file on start". It is a single shared string, so other tools' own
+/// `AutoRun` commands (if any) are chained onto it with `&`, never replaced.
+const AUTORUN_KEY: &str = r"HKCU\Software\Microsoft\Command Processor";
+
+/// The exact command appended to `AutoRun`, and the token `install`/
+/// `uninstall` search for to add or remove just their own piece of it.
+fn doskey_token(path: &Path) -> String {
+    format!(r#"doskey /macrofile="{}""#, path.display()).to_string()
+}
+
+/// `reg.exe` is always on `PATH` on Windows, so shelling out to it reads and
+/// writes the one registry value this needs without pulling in a registry
+/// crate for it.
+fn autorun_value() -> io::Result<String> {
+    let out = std::process::Command::new("reg")
+        .args(["query", AUTORUN_KEY, "/v", "AutoRun"])
+        .output()?;
+    if !out.status.success() {
+        return Ok(String::new()); // value does not exist yet
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    Ok(text
+        .lines()
+        .find_map(|line| line.split_once("REG_SZ"))
+        .map(|(_, v)| v.trim().to_string())
+        .unwrap_or_default())
+}
+
+fn set_autorun(value: &str) -> io::Result<()> {
+    let status = std::process::Command::new("reg")
+        .args(["add", AUTORUN_KEY, "/v", "AutoRun", "/d", value, "/f"])
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other("`reg add` failed to set AutoRun"))
+    }
+}
+
+fn delete_autorun() -> io::Result<()> {
+    let status = std::process::Command::new("reg")
+        .args(["delete", AUTORUN_KEY, "/v", "AutoRun", "/f"])
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other("`reg delete` failed to clear AutoRun"))
+    }
 }
 
 /// Our block, ready to splice into an rc file: markers around the same
@@ -107,9 +162,15 @@ fn without_block(text: &str) -> Option<String> {
 /// `cdt health` to report status without changing anything.
 pub fn installed(shell: &str) -> bool {
     if shell == "cmd" {
-        return cmd_path().ok().is_some_and(|p| {
-            fs::read_to_string(p).ok().as_deref() == crate::wrapper_text("cmd").as_deref()
-        });
+        let Ok(path) = doskey_path() else {
+            return false;
+        };
+        let file_matches =
+            fs::read_to_string(&path).ok().as_deref() == crate::wrapper_text("cmd").as_deref();
+        let registered = autorun_value()
+            .unwrap_or_default()
+            .contains(&doskey_token(&path));
+        return file_matches && registered;
     }
     rc_path(shell)
         .ok()
@@ -132,8 +193,13 @@ pub fn install(shell: &str) -> Result<String, Box<dyn Error>> {
     }
     text.push_str(&block(shell));
     fs::write(&path, text)?;
+    let reload = if shell == "powershell" {
+        format!(". \"{}\"", path.display())
+    } else {
+        format!("source {}", path.display())
+    };
     Ok(format!(
-        "{shell}: wrote the wrapper into {}",
+        "{shell}: wrote the wrapper into {} — restart the shell (or run `{reload}`) for it to take effect in this session",
         path.display()
     ))
 }
@@ -162,52 +228,53 @@ pub fn uninstall(shell: &str) -> Result<String, Box<dyn Error>> {
 }
 
 fn install_cmd() -> Result<String, Box<dyn Error>> {
-    let path = cmd_path()?;
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-    }
+    let path = doskey_path()?;
     fs::write(
         &path,
         crate::wrapper_text("cmd").expect("cmd has a wrapper"),
     )?;
-    Ok(format!("cmd: wrote {}{}", path.display(), path_hint(&path)))
+    let token = doskey_token(&path);
+    let current = autorun_value()?;
+    if !current.contains(&token) {
+        let combined = if current.trim().is_empty() {
+            token
+        } else {
+            format!("{current} & {token}").to_string()
+        };
+        set_autorun(&combined)?;
+    }
+    Ok(format!(
+        "cmd: wrote the doskey macro to {} and set it to load on every new Command Prompt — open a new one for it to take effect",
+        path.display()
+    ))
 }
 
 fn uninstall_cmd() -> Result<String, Box<dyn Error>> {
-    let path = cmd_path()?;
-    match fs::read_to_string(&path) {
-        Ok(content) if content == crate::wrapper_text("cmd").expect("cmd has a wrapper") => {
-            fs::remove_file(&path)?;
-            Ok(format!("cmd: removed {}", path.display()))
+    let path = doskey_path()?;
+    let token = doskey_token(&path);
+    let current = autorun_value().unwrap_or_default();
+    let was_registered = current.contains(&token);
+    if was_registered {
+        let stripped = current
+            .replace(&format!(" & {token}"), "")
+            .replace(&token, "");
+        if stripped.trim().is_empty() {
+            delete_autorun()?;
+        } else {
+            set_autorun(stripped.trim())?;
         }
-        Ok(_) => Ok(format!(
-            "cmd: {} does not match what cdt would write — left it alone",
+    }
+    let had_file = fs::remove_file(&path).is_ok();
+    if was_registered || had_file {
+        Ok(format!(
+            "cmd: removed the doskey macro ({})",
             path.display()
-        )),
-        Err(_) => Ok(format!(
+        ))
+    } else {
+        Ok(format!(
             "cmd: nothing to remove ({} not found)",
             path.display()
-        )),
-    }
-}
-
-/// cmd has no rc file to source, so the `.cmd` only works once its directory
-/// is on `PATH` ahead of `.cargo\bin` — something `install` cannot set up
-/// itself without touching the registry, so it only says so when missing.
-fn path_hint(file: &Path) -> String {
-    let Some(dir) = file.parent() else {
-        return String::new();
-    };
-    let on_path = std::env::var_os("PATH")
-        .is_some_and(|paths| std::env::split_paths(&paths).any(|p| p == dir));
-    if on_path {
-        String::new()
-    } else {
-        format!(
-            " — add {} to PATH, before %USERPROFILE%\\.cargo\\bin, for it to take effect",
-            dir.display()
-        )
-        .to_string()
+        ))
     }
 }
 

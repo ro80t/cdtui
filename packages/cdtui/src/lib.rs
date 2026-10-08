@@ -112,13 +112,17 @@ const POWERSHELL: &str = r#"function cdt { $d = cdt.exe @args; if ($d) { Set-Loc
 Set-Alias cdtui cdt
 "#;
 
-/// cmd.exe, which has no functions: this has to be saved as a file on PATH.
-/// `%%d` is the in-a-file spelling; at the prompt the same loop takes `%d`.
-const CMD: &str = r#"@echo off
-rem Save as cdt.cmd in a PATH directory that comes BEFORE %USERPROFILE%\.cargo\bin.
-rem Within one directory cmd prefers .EXE over .CMD, so next to cdt.exe this
-rem file would never run. Check with: where cdt
-for /f "delims=" %%d in ('cdt.exe %*') do cd /d "%%d"
+/// cmd.exe has no functions, and a same-named `cdt.cmd` on PATH is no
+/// substitute: PATH is searched in order, so whichever directory comes
+/// first wins, and `cargo install` already put `cdt.exe` on PATH ahead of
+/// almost anything a user would add by hand — the wrapper loses before it
+/// ever runs. `doskey` macros are cmd's actual function equivalent: the
+/// console expands them before PATH is consulted at all, so this is loaded
+/// from a macro file via `AutoRun` instead of being saved as a script.
+/// One line per macro, `name=definition`; `%d`, not `%%d`, because this runs
+/// as typed input, not from inside a saved `.bat`/`.cmd` file.
+const CMD: &str = r#"cdt=for /f "delims=" %d in ('cdt.exe $*') do @cd /d "%d"
+cdtui=for /f "delims=" %d in ('cdtui.exe $*') do @cd /d "%d"
 "#;
 
 /// Shown on stderr when a chosen path was printed with nothing to catch it.
@@ -347,11 +351,18 @@ mod tests {
     }
 
     #[test]
-    fn the_cmd_snippet_uses_the_in_a_file_percent_spelling() {
-        // `%%d` is correct inside a .cmd file; `%d` only works typed at the
-        // prompt, and the snippet is meant to be saved to a file.
+    fn the_cmd_snippet_uses_the_doskey_percent_spelling() {
+        // `%d` is correct for a doskey macro, which runs as typed input;
+        // `%%d` would only be right inside a saved .bat/.cmd file.
         let t = snippet("cmd").unwrap();
-        assert!(t.contains("%%d"), "{t}");
+        assert!(t.contains("%d") && !t.contains("%%d"), "{t}");
+    }
+
+    #[test]
+    fn the_cmd_snippet_defines_both_binary_names_as_macros() {
+        let t = snippet("cmd").unwrap();
+        assert!(t.contains("cdt="), "{t}");
+        assert!(t.contains("cdtui="), "{t}");
     }
 
     /// The cmd wrapper is written straight to a .cmd file, which cmd can
