@@ -71,10 +71,10 @@ fn count(app: &App, noun: &str) -> String {
         return if n == 0 {
             "searching…".into()
         } else {
-            format!("{n}{more} {noun}, searching…")
+            format!("{n}{more} {noun}, searching…").to_string()
         };
     }
-    format!("{n}{more} {noun}")
+    format!("{n}{more} {noun}").to_string()
 }
 
 #[cfg(test)]
