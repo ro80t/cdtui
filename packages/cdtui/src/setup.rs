@@ -70,21 +70,44 @@ fn rc_paths(shell: &str) -> io::Result<Vec<PathBuf>> {
 /// yet still leave `cdt` not cd-ing the moment a different launcher is used;
 /// writing into every PowerShell profile this machine could have sidesteps
 /// the guess entirely.
-// ponytail: assumes Documents lives at %USERPROFILE%\Documents, which is
-// wrong if it has been redirected — point `cdt install powershell` at the
-// right file by hand if so.
 fn powershell_profiles() -> io::Result<Vec<PathBuf>> {
-    let home = home()?;
     if cfg!(windows) {
         Ok(vec![
-            home.join("Documents/PowerShell/Microsoft.PowerShell_profile.ps1"),
-            home.join("Documents/WindowsPowerShell/Microsoft.PowerShell_profile.ps1"),
+            profile_path("pwsh").unwrap_or_else(|| {
+                home_guess("Documents/PowerShell/Microsoft.PowerShell_profile.ps1")
+            }),
+            profile_path("powershell").unwrap_or_else(|| {
+                home_guess("Documents/WindowsPowerShell/Microsoft.PowerShell_profile.ps1")
+            }),
         ])
     } else {
-        Ok(vec![home.join(
+        Ok(vec![home()?.join(
             ".config/powershell/Microsoft.PowerShell_profile.ps1",
         )])
     }
+}
+
+/// `%USERPROFILE%\Documents` is wrong whenever Documents has been redirected
+/// (e.g. by OneDrive) — [`profile_path`] is the real source of truth and this
+/// is only the fallback for when `bin` is not on `PATH` to ask.
+fn home_guess(suffix: &str) -> PathBuf {
+    home().map(|h| h.join(suffix)).unwrap_or_default()
+}
+
+/// Ask the shell itself where its profile lives instead of guessing the path
+/// — the only way to get it right when Documents is redirected (OneDrive and
+/// others) or `$PROFILE` was customized. `None` if `bin` is not on `PATH` or
+/// fails to answer.
+fn profile_path(bin: &str) -> Option<PathBuf> {
+    if !on_path(bin) {
+        return None;
+    }
+    let out = std::process::Command::new(bin)
+        .args(["-NoLogo", "-NoProfile", "-Command", "$PROFILE"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !text.is_empty()).then(|| PathBuf::from(text))
 }
 
 /// Where the doskey macro definitions live. Any name/extension would do —
