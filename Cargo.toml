@@ -5,7 +5,7 @@ resolver = "3"
 # Publish metadata inherited by every crate. crates.io requires version,
 # description and license; description is written per crate.
 [workspace.package]
-version = "0.5.2"
+version = "0.5.3"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
@@ -20,9 +20,9 @@ categories = ["command-line-utilities", "filesystem"]
 [workspace.dependencies]
 ignore = "0.4.33"
 ratatui = "0.30.2"
-cdt-tree = { path = "packages/cdt-tree", version = "0.5.2" }
-cdt-search = { path = "packages/cdt-search", version = "0.5.2" }
-cdt-view = { path = "packages/cdt-view", version = "0.5.2" }
+cdt-tree = { path = "packages/cdt-tree", version = "0.5.3" }
+cdt-search = { path = "packages/cdt-search", version = "0.5.3" }
+cdt-view = { path = "packages/cdt-view", version = "0.5.3" }
 
 [profile.release]
 strip = true
