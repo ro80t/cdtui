@@ -48,35 +48,40 @@ fn home() -> io::Result<PathBuf> {
         .ok_or_else(|| io::Error::other(format!("no home directory (${var} is not set)")))
 }
 
-/// Install writes straight into this file (or, on Windows, re-detects it
+/// Install writes straight into these files (or, on Windows, re-detects them
 /// fresh each call, since `cdt install` can run once for several shells).
-fn rc_path(shell: &str) -> io::Result<PathBuf> {
+/// Every bash/zsh shell has exactly one rc file; PowerShell can have two —
+/// see [`powershell_profiles`].
+fn rc_paths(shell: &str) -> io::Result<Vec<PathBuf>> {
     match shell {
-        "bash" => Ok(home()?.join(".bashrc")),
-        "zsh" => Ok(home()?.join(".zshrc")),
-        "powershell" => powershell_profile(),
+        "bash" => Ok(vec![home()?.join(".bashrc")]),
+        "zsh" => Ok(vec![home()?.join(".zshrc")]),
+        "powershell" => powershell_profiles(),
         _ => unreachable!("only bash, zsh and powershell use an rc file"),
     }
 }
 
 /// PowerShell has no single `$PROFILE`: Windows PowerShell 5.1 and PowerShell
-/// 7+ each read their own file, and 7+ moves again between Windows and
-/// everywhere else. Picking `Documents\PowerShell` when it already exists
-/// covers a machine with 7+ installed; a fresh Windows box falls back to the
-/// 5.1 path, which is present even when nothing has been configured yet.
+/// 7+ each read their own file. Which one actually runs for a given `cdt` is
+/// decided by whatever launched that shell — a terminal emulator's own
+/// config (WezTerm's `default_prog`, Windows Terminal's profile list, a
+/// shortcut, a scheduled task — not by which one the user happens to type
+/// into by habit. Guessing a single "right" file is how install can succeed
+/// yet still leave `cdt` not cd-ing the moment a different launcher is used;
+/// writing into every PowerShell profile this machine could have sidesteps
+/// the guess entirely.
 // ponytail: assumes Documents lives at %USERPROFILE%\Documents, which is
 // wrong if it has been redirected — point `cdt install powershell` at the
 // right file by hand if so.
-fn powershell_profile() -> io::Result<PathBuf> {
+fn powershell_profiles() -> io::Result<Vec<PathBuf>> {
     let home = home()?;
     if cfg!(windows) {
-        let v7 = home.join("Documents/PowerShell/Microsoft.PowerShell_profile.ps1");
-        if v7.parent().is_some_and(Path::is_dir) {
-            return Ok(v7);
-        }
-        Ok(home.join("Documents/WindowsPowerShell/Microsoft.PowerShell_profile.ps1"))
+        Ok(vec![
+            home.join("Documents/PowerShell/Microsoft.PowerShell_profile.ps1"),
+            home.join("Documents/WindowsPowerShell/Microsoft.PowerShell_profile.ps1"),
+        ])
     } else {
-        Ok(home.join(".config/powershell/Microsoft.PowerShell_profile.ps1"))
+        Ok(vec![home.join(".config/powershell/Microsoft.PowerShell_profile.ps1")])
     }
 }
 
@@ -172,35 +177,55 @@ pub fn installed(shell: &str) -> bool {
             .contains(&doskey_token(&path));
         return file_matches && registered;
     }
-    rc_path(shell)
+    rc_paths(shell)
         .ok()
-        .and_then(|p| fs::read_to_string(p).ok())
-        .is_some_and(|text| text.contains(BEGIN))
+        .is_some_and(|paths| {
+            !paths.is_empty()
+                && paths.iter().all(|p| {
+                    fs::read_to_string(p).is_ok_and(|text| text.contains(BEGIN))
+                })
+        })
+}
+
+fn write_block(path: &Path, shell: &str) -> io::Result<()> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let existing = fs::read_to_string(path).unwrap_or_default();
+    let mut text = without_block(&existing).unwrap_or(existing);
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(&block(shell));
+    fs::write(path, text)
 }
 
 pub fn install(shell: &str) -> Result<String, Box<dyn Error>> {
     if shell == "cmd" {
         return install_cmd();
     }
-    let path = rc_path(shell)?;
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
+    let paths = rc_paths(shell)?;
+    for path in &paths {
+        write_block(path, shell)?;
     }
-    let existing = fs::read_to_string(&path).unwrap_or_default();
-    let mut text = without_block(&existing).unwrap_or(existing);
-    if !text.is_empty() && !text.ends_with('\n') {
-        text.push('\n');
-    }
-    text.push_str(&block(shell));
-    fs::write(&path, text)?;
-    let reload = if shell == "powershell" {
-        format!(". \"{}\"", path.display())
-    } else {
-        format!("source {}", path.display())
-    };
+    let written = paths
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(" and ");
+    let reload = paths
+        .iter()
+        .map(|p| {
+            if shell == "powershell" {
+                format!(". \"{}\"", p.display())
+            } else {
+                format!("source {}", p.display())
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
     Ok(format!(
-        "{shell}: wrote the wrapper into {} — restart the shell (or run `{reload}`) for it to take effect in this session",
-        path.display()
+        "{shell}: wrote the wrapper into {written} — restart the shell (or run `{reload}`) for it to take effect in this session"
     ))
 }
 
@@ -208,23 +233,22 @@ pub fn uninstall(shell: &str) -> Result<String, Box<dyn Error>> {
     if shell == "cmd" {
         return uninstall_cmd();
     }
-    let path = rc_path(shell)?;
-    let Ok(existing) = fs::read_to_string(&path) else {
-        return Ok(format!(
-            "{shell}: nothing to remove ({} not found)",
-            path.display()
-        ));
-    };
-    match without_block(&existing) {
-        Some(text) => {
-            fs::write(&path, text)?;
-            Ok(format!(
-                "{shell}: removed the wrapper from {}",
-                path.display()
-            ))
-        }
-        None => Ok(format!("{shell}: no cdt block found in {}", path.display())),
+    let mut removed = Vec::new();
+    for path in rc_paths(shell)? {
+        let Ok(existing) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Some(text) = without_block(&existing) else {
+            continue;
+        };
+        fs::write(&path, text)?;
+        removed.push(path.display().to_string());
     }
+    Ok(if removed.is_empty() {
+        format!("{shell}: nothing to remove")
+    } else {
+        format!("{shell}: removed the wrapper from {}", removed.join(" and "))
+    })
 }
 
 fn install_cmd() -> Result<String, Box<dyn Error>> {
