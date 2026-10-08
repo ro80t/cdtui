@@ -210,9 +210,15 @@ pub fn installed(shell: &str) -> bool {
     })
 }
 
+/// A bare `io::Error` (e.g. "Access is denied.") does not say which file it
+/// was about — the OS error alone is enough to recognize *what* went wrong
+/// (Windows' Controlled Folder Access blocking writes into a protected
+/// Documents folder, say) but not *where*, so every I/O error on `path` is
+/// re-wrapped with it here.
 fn write_block(path: &Path, shell: &str) -> io::Result<()> {
+    let with_path = |e: io::Error| io::Error::other(format!("{}: {e}", path.display()));
     if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
+        fs::create_dir_all(dir).map_err(with_path)?;
     }
     let existing = fs::read_to_string(path).unwrap_or_default();
     let mut text = without_block(&existing).unwrap_or(existing);
@@ -220,7 +226,7 @@ fn write_block(path: &Path, shell: &str) -> io::Result<()> {
         text.push('\n');
     }
     text.push_str(&block(shell));
-    fs::write(path, text)
+    fs::write(path, text).map_err(with_path)
 }
 
 pub fn install(shell: &str) -> Result<String, Box<dyn Error>> {
