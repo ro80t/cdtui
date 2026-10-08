@@ -177,10 +177,11 @@ mod tests {
     #[test]
     fn enter_picks_a_directory_and_ends_the_loop() {
         let mut app = app();
-        let Some(Action::Pick(p)) = on_key(&mut app, KeyCode::Enter) else {
+        if let Some(Action::Pick(p)) = on_key(&mut app, KeyCode::Enter) {
+            assert!(p.is_dir(), "{p:?}");
+        } else {
             panic!("Enter must pick");
         };
-        assert!(p.is_dir(), "{p:?}");
     }
 
     #[test]
@@ -249,10 +250,11 @@ mod tests {
         assert!(!app.hits.is_empty(), "lib.rs must be found");
         assert!(app.hits.iter().any(|p| p.is_file()));
 
-        let Some(Action::Pick(p)) = on_key(&mut app, KeyCode::Enter) else {
+        if let Some(Action::Pick(p)) = on_key(&mut app, KeyCode::Enter) {
+            assert!(p.is_dir(), "{p:?}");
+        } else {
             panic!("Enter must pick");
         };
-        assert!(p.is_dir(), "{p:?}");
     }
 
     /// The whole point of the worker: a keystroke returns before the search
@@ -284,11 +286,12 @@ mod tests {
         assert!(app.search.pending(), "precondition: still searching");
         assert!(app.hits.is_empty(), "precondition: nothing arrived yet");
 
-        let Some(Action::Pick(p)) = on_key(&mut app, KeyCode::Enter) else {
+        if let Some(Action::Pick(p)) = on_key(&mut app, KeyCode::Enter) {
+            assert_eq!(p, app.tree.root.join("src"), "picked {p:?}");
+            assert_ne!(p, app.tree.root, "fell back to the root");
+        } else {
             panic!("Enter must pick");
         };
-        assert_eq!(p, app.tree.root.join("src"), "picked {p:?}");
-        assert_ne!(p, app.tree.root, "fell back to the root");
     }
 
     /// Backspacing the query away clears the list without a round trip.
