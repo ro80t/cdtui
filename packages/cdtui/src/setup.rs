@@ -81,7 +81,9 @@ fn powershell_profiles() -> io::Result<Vec<PathBuf>> {
             home.join("Documents/WindowsPowerShell/Microsoft.PowerShell_profile.ps1"),
         ])
     } else {
-        Ok(vec![home.join(".config/powershell/Microsoft.PowerShell_profile.ps1")])
+        Ok(vec![home.join(
+            ".config/powershell/Microsoft.PowerShell_profile.ps1",
+        )])
     }
 }
 
@@ -177,14 +179,12 @@ pub fn installed(shell: &str) -> bool {
             .contains(&doskey_token(&path));
         return file_matches && registered;
     }
-    rc_paths(shell)
-        .ok()
-        .is_some_and(|paths| {
-            !paths.is_empty()
-                && paths.iter().all(|p| {
-                    fs::read_to_string(p).is_ok_and(|text| text.contains(BEGIN))
-                })
-        })
+    rc_paths(shell).ok().is_some_and(|paths| {
+        !paths.is_empty()
+            && paths
+                .iter()
+                .all(|p| fs::read_to_string(p).is_ok_and(|text| text.contains(BEGIN)))
+    })
 }
 
 fn write_block(path: &Path, shell: &str) -> io::Result<()> {
@@ -247,7 +247,10 @@ pub fn uninstall(shell: &str) -> Result<String, Box<dyn Error>> {
     Ok(if removed.is_empty() {
         format!("{shell}: nothing to remove")
     } else {
-        format!("{shell}: removed the wrapper from {}", removed.join(" and "))
+        format!(
+            "{shell}: removed the wrapper from {}",
+            removed.join(" and ")
+        )
     })
 }
 
