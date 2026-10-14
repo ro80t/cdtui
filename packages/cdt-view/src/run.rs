@@ -147,9 +147,7 @@ fn on_tree_key(app: &mut App, code: KeyCode) -> Option<Action> {
         KeyCode::Char('k') | KeyCode::Up => app.move_by(-1),
         KeyCode::Char('g') => app.sel = 0,
         KeyCode::Char('G') => app.sel = app.len().saturating_sub(1),
-        KeyCode::Char('l') | KeyCode::Right | KeyCode::Tab | KeyCode::Char(' ') => {
-            app.enter_dir()
-        }
+        KeyCode::Char('l') | KeyCode::Right | KeyCode::Tab | KeyCode::Char(' ') => app.enter_dir(),
         KeyCode::Char('h') | KeyCode::Left => app.leave_dir(),
         KeyCode::Char('.') => app.toggle_hidden(),
         KeyCode::Char('/') => app.mode = Mode::Find(String::new()),
@@ -201,7 +199,10 @@ mod tests {
 
         assert_eq!(on_key(&mut app, KeyCode::Char('h')), None);
         assert_eq!(app.tree.root, root);
-        assert_eq!(app.tree.entries[app.sel].path, child, "cursor should stay on src/");
+        assert_eq!(
+            app.tree.entries[app.sel].path, child,
+            "cursor should stay on src/"
+        );
     }
 
     #[test]

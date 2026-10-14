@@ -64,7 +64,14 @@ fn draw_panes(f: &mut Frame, app: &mut App, area: Rect) {
     match cdt_tree::up_listing(&app.tree.root, app.tree.hidden) {
         Some(parent) => {
             let sel = parent.iter().position(|e| e.path == app.tree.root);
-            pane(f, left, &parent, &mut ListState::default().with_selected(sel), " .. ", false);
+            pane(
+                f,
+                left,
+                &parent,
+                &mut ListState::default().with_selected(sel),
+                " .. ",
+                false,
+            );
         }
         None => f.render_widget(Block::new().borders(Borders::ALL).title(" .. "), left),
     }
