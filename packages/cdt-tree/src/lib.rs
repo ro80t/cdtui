@@ -1,13 +1,12 @@
-//! Directory tree model: a flat `Vec<Entry>` where nesting is held in `depth`.
-//! Expanding splices children in, collapsing drains the nested run back out.
+//! Directory listing + up/down navigation for a miller-column browser: each
+//! pane is just one directory's children, and `Tree` tracks the one currently
+//! browsed.
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct Entry {
     pub path: PathBuf,
-    pub depth: usize,
     pub is_dir: bool,
-    pub open: bool,
 }
 
 impl Entry {
@@ -21,16 +20,10 @@ impl Entry {
     }
 }
 
-pub struct Tree {
-    pub root: PathBuf,
-    pub entries: Vec<Entry>,
-    pub hidden: bool,
-}
-
 /// Whether an entry should behave as a directory. `DirEntry::file_type` does
 /// not follow links, so a symlink or Windows junction pointing at a directory
 /// reports `is_dir = false`; left alone it would render as a leaf and refuse
-/// to expand. Only links pay the extra stat.
+/// to be entered. Only links pay the extra stat.
 fn is_dir(e: &std::fs::DirEntry) -> bool {
     match e.file_type() {
         Ok(t) if t.is_dir() => true,
@@ -40,7 +33,7 @@ fn is_dir(e: &std::fs::DirEntry) -> bool {
 }
 
 /// One directory's entries, directories first then files, case-insensitive.
-pub fn children(dir: &Path, hidden: bool, depth: usize) -> Vec<Entry> {
+pub fn children(dir: &Path, hidden: bool) -> Vec<Entry> {
     let mut v: Vec<Entry> = std::fs::read_dir(dir)
         .into_iter()
         .flatten()
@@ -49,8 +42,6 @@ pub fn children(dir: &Path, hidden: bool, depth: usize) -> Vec<Entry> {
         .map(|e| Entry {
             is_dir: is_dir(&e),
             path: e.path(),
-            depth,
-            open: false,
         })
         .collect();
     v.sort_by_key(|e| (!e.is_dir, e.name().to_lowercase()));
@@ -70,33 +61,49 @@ fn drives() -> Vec<PathBuf> {
 }
 
 /// `root`'s entries — real directory listing, except the empty path, which
-/// [`Tree::up`] uses on Windows as the synthetic level above any one drive.
-fn load(root: &Path, hidden: bool, depth: usize) -> Vec<Entry> {
+/// stands for the synthetic level above any one drive on Windows.
+fn load(root: &Path, hidden: bool) -> Vec<Entry> {
     #[cfg(windows)]
     if root.as_os_str().is_empty() {
         return drives()
             .into_iter()
-            .map(|path| Entry {
-                path,
-                depth,
-                is_dir: true,
-                open: false,
-            })
+            .map(|path| Entry { path, is_dir: true })
             .collect();
     }
-    children(root, hidden, depth)
+    children(root, hidden)
 }
 
-/// Number of entries right after `i` that are nested under it.
-pub fn descendants(entries: &[Entry], i: usize) -> usize {
-    let d = entries[i].depth;
-    entries[i + 1..].iter().take_while(|e| e.depth > d).count()
+/// What `root`'s parent directory is, by the same rule [`Tree::up`] uses: a
+/// drive root on Windows steps out to the synthetic drives level instead of
+/// stopping, since `C:\` has no parent the way nested directories do.
+fn parent_root(root: &Path) -> Option<PathBuf> {
+    if let Some(p) = root.parent() {
+        return Some(p.to_path_buf());
+    }
+    #[cfg(windows)]
+    if !root.as_os_str().is_empty() {
+        return Some(PathBuf::new());
+    }
+    None
+}
+
+/// What the parent pane shows for `root`, without moving into it. `None` once
+/// there is truly nothing above (e.g. `/` on non-Windows, or the drives level
+/// itself on Windows).
+pub fn up_listing(root: &Path, hidden: bool) -> Option<Vec<Entry>> {
+    parent_root(root).map(|p| load(&p, hidden))
+}
+
+pub struct Tree {
+    pub root: PathBuf,
+    pub entries: Vec<Entry>,
+    pub hidden: bool,
 }
 
 impl Tree {
     pub fn new(root: PathBuf, hidden: bool) -> Self {
         Tree {
-            entries: load(&root, hidden, 0),
+            entries: load(&root, hidden),
             root,
             hidden,
         }
@@ -115,61 +122,34 @@ impl Tree {
         self.entries.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
     pub fn get(&self, i: usize) -> Option<&Entry> {
         self.entries.get(i)
     }
 
     pub fn reload(&mut self) {
-        self.entries = load(&self.root, self.hidden, 0);
+        self.entries = load(&self.root, self.hidden);
     }
 
-    /// Expand or collapse the directory at `i`. No-op on files.
-    pub fn toggle(&mut self, i: usize) {
-        let Some(e) = self.entries.get(i) else { return };
-        if !e.is_dir {
-            return;
-        }
-        if e.open {
-            let n = descendants(&self.entries, i);
-            self.entries.drain(i + 1..=i + n);
-            self.entries[i].open = false;
-        } else {
-            let kids = children(&e.path, self.hidden, e.depth + 1);
-            self.entries[i].open = true;
-            self.entries.splice(i + 1..i + 1, kids);
-        }
-    }
-
-    /// Index of the entry that `i` is nested under.
-    pub fn parent_of(&self, i: usize) -> Option<usize> {
-        let d = self.entries.get(i)?.depth;
-        if d == 0 {
-            return None;
-        }
-        self.entries[..i].iter().rposition(|e| e.depth < d)
-    }
-
-    /// Re-root one directory up. At a drive root on Windows, steps out to the
-    /// synthetic drives level ([`load`]) instead of stopping, since `C:\` has
-    /// no parent the way nested directories do. False once there is truly
-    /// nothing above (the drives level itself, or `/` on other platforms).
+    /// Re-root one directory up. False once there is truly nothing above.
     pub fn up(&mut self) -> bool {
-        if let Some(parent) = self.root.parent() {
-            self.root = parent.to_path_buf();
-            self.reload();
-            return true;
+        match parent_root(&self.root) {
+            Some(p) => {
+                self.root = p;
+                self.reload();
+                true
+            }
+            None => false,
         }
-        #[cfg(windows)]
-        if !self.root.as_os_str().is_empty() {
-            self.root = PathBuf::new();
-            self.reload();
-            return true;
+    }
+
+    /// Re-root into `path`. False (no-op) if it is not a directory.
+    pub fn down(&mut self, path: PathBuf) -> bool {
+        if !path.is_dir() {
+            return false;
         }
-        false
+        self.root = path;
+        self.reload();
+        true
     }
 }
 
@@ -177,39 +157,46 @@ impl Tree {
 mod tests {
     use super::*;
 
-    fn e(depth: usize) -> Entry {
-        Entry {
-            path: PathBuf::from("x"),
-            depth,
-            is_dir: true,
-            open: false,
-        }
-    }
-
     #[test]
-    fn descendants_counts_only_the_nested_run() {
-        let t = vec![e(0), e(1), e(2), e(1), e(0)];
-        assert_eq!(descendants(&t, 0), 3);
-        assert_eq!(descendants(&t, 1), 1);
-        assert_eq!(descendants(&t, 2), 0);
-        assert_eq!(descendants(&t, 4), 0);
-    }
-
-    #[test]
-    fn expand_then_collapse_restores_the_entry_list() {
-        // Own crate dir: contains src/ (a dir) and Cargo.toml.
-        let mut t = Tree::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")), false);
-        let before = t.len();
-        let i = t
+    fn down_then_up_round_trips_the_root() {
+        let start = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let mut t = Tree::new(start.clone(), false);
+        let src = t
             .entries
             .iter()
-            .position(|e| e.is_dir)
-            .expect("src/ exists");
-        t.toggle(i);
-        assert!(t.len() > before && t.entries[i].open);
-        t.toggle(i);
-        assert_eq!(t.len(), before);
-        assert!(!t.entries[i].open);
+            .find(|e| e.is_dir)
+            .expect("src/ exists")
+            .path
+            .clone();
+
+        assert!(t.down(src.clone()));
+        assert_eq!(t.root, src);
+
+        assert!(t.up());
+        assert_eq!(t.root, start);
+    }
+
+    #[test]
+    fn down_into_a_file_is_a_no_op() {
+        let start = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let mut t = Tree::new(start.clone(), false);
+        let file = t
+            .entries
+            .iter()
+            .find(|e| !e.is_dir)
+            .expect("Cargo.toml exists")
+            .path
+            .clone();
+
+        assert!(!t.down(file));
+        assert_eq!(t.root, start);
+    }
+
+    #[test]
+    fn up_listing_shows_the_parent_without_moving() {
+        let start = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let listing = up_listing(&start, false).expect("has a parent");
+        assert!(listing.iter().any(|e| e.path == start));
     }
 
     #[test]
@@ -227,7 +214,7 @@ mod tests {
         // Creating a symlink needs admin or Developer Mode on Windows; skip
         // there rather than failing the suite, as the rg tests do.
         if made {
-            let kids = children(&base, false, 0);
+            let kids = children(&base, false);
             let l = kids
                 .iter()
                 .find(|e| e.name() == "link")
@@ -235,17 +222,6 @@ mod tests {
             assert!(l.is_dir, "a link to a directory must expand like one");
         }
         let _ = std::fs::remove_dir_all(&base);
-    }
-
-    #[test]
-    fn parent_of_walks_out_one_level() {
-        let t = Tree {
-            root: PathBuf::new(),
-            hidden: false,
-            entries: vec![e(0), e(1), e(2)],
-        };
-        assert_eq!(t.parent_of(0), None);
-        assert_eq!(t.parent_of(2), Some(1));
     }
 
     /// The core contract this module exists for: Windows has no single root,

@@ -73,23 +73,27 @@ impl App {
         self.search.cancel();
     }
 
-    /// `h`: close an open dir, else step out to the parent, else re-root upward.
-    pub(crate) fn collapse_or_up(&mut self) {
-        match self.tree.get(self.sel) {
-            Some(e) if e.is_dir && e.open => self.tree.toggle(self.sel),
-            Some(_) => match self.tree.parent_of(self.sel) {
-                Some(p) => self.sel = p,
-                None => {
-                    if self.tree.up() {
-                        self.sel = 0;
-                    }
-                }
-            },
-            None => {
-                if self.tree.up() {
-                    self.sel = 0;
-                }
+    /// `l`: step into the selected directory, becoming the new middle pane.
+    /// No-op on a file.
+    pub(crate) fn enter_dir(&mut self) {
+        if let Some(e) = self.tree.get(self.sel) {
+            if e.is_dir && self.tree.down(e.path.clone()) {
+                self.sel = 0;
             }
+        }
+    }
+
+    /// `h`: step out to the parent, leaving the cursor on the directory we
+    /// came from so the view doesn't jump.
+    pub(crate) fn leave_dir(&mut self) {
+        let here = self.tree.root.clone();
+        if self.tree.up() {
+            self.sel = self
+                .tree
+                .entries
+                .iter()
+                .position(|e| e.path == here)
+                .unwrap_or(0);
         }
     }
 

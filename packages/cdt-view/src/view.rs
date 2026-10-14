@@ -1,23 +1,33 @@
-//! Rendering. One list plus a one-line status bar; nothing here mutates state.
+//! Rendering. A yazi-style 3-pane browser (parent / current / preview) plus a
+//! one-line status bar in tree mode, one flat list in search mode; nothing
+//! here mutates state.
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 use crate::app::{App, Mode};
 
-const HELP: &str = "j/k move  l expand  h up  / find  s grep  . hidden  Enter cd  q quit";
+const HELP: &str = "j/k move  l in  h out  / find  s grep  . hidden  Enter cd  q quit";
 
 pub(crate) fn draw(f: &mut Frame, app: &App) {
     let [body, bar] = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(f.area());
 
-    let items: Vec<ListItem> = match app.mode {
-        Mode::Tree => app.tree.entries.iter().map(tree_row).collect(),
-        _ => app
-            .hits
-            .iter()
-            .map(|p| ListItem::new(cdt_search::label(&app.tree.root, p)))
-            .collect(),
-    };
+    match app.mode {
+        Mode::Tree => draw_panes(f, app, body),
+        _ => draw_hits(f, app, body),
+    }
 
+    f.render_widget(
+        Paragraph::new(status(app)).style(Style::new().fg(Color::DarkGray)),
+        bar,
+    );
+}
+
+fn draw_hits(f: &mut Frame, app: &App, area: Rect) {
+    let items: Vec<ListItem> = app
+        .hits
+        .iter()
+        .map(|p| ListItem::new(cdt_search::label(&app.tree.root, p)))
+        .collect();
     let mut state = ListState::default().with_selected(Some(app.sel));
     f.render_stateful_widget(
         List::new(items)
@@ -27,30 +37,83 @@ pub(crate) fn draw(f: &mut Frame, app: &App) {
                     .title(format!(" {} ", app.tree.display_root())),
             )
             .highlight_style(Style::new().reversed()),
-        body,
+        area,
         &mut state,
-    );
-
-    f.render_widget(
-        Paragraph::new(status(app)).style(Style::new().fg(Color::DarkGray)),
-        bar,
     );
 }
 
-fn tree_row(e: &cdt_tree::Entry) -> ListItem<'static> {
-    let icon = if !e.is_dir {
-        "  "
-    } else if e.open {
-        "▾ "
+/// Three columns: the parent directory (for context), the one being browsed
+/// (interactive), and a preview of whatever is selected in it.
+fn draw_panes(f: &mut Frame, app: &App, area: Rect) {
+    let [left, mid, right] = Layout::horizontal([
+        Constraint::Ratio(1, 4),
+        Constraint::Ratio(1, 2),
+        Constraint::Ratio(1, 4),
+    ])
+    .areas(area);
+
+    match cdt_tree::up_listing(&app.tree.root, app.tree.hidden) {
+        Some(parent) => {
+            let sel = parent.iter().position(|e| e.path == app.tree.root);
+            pane(f, left, &parent, sel, " .. ", false);
+        }
+        None => f.render_widget(Block::new().borders(Borders::ALL).title(" .. "), left),
+    }
+
+    pane(
+        f,
+        mid,
+        &app.tree.entries,
+        Some(app.sel),
+        &format!(" {} ", app.tree.display_root()),
+        true,
+    );
+
+    match app.selected().filter(|p| p.is_dir()) {
+        Some(p) => pane(
+            f,
+            right,
+            &cdt_tree::children(p, app.tree.hidden),
+            None,
+            " preview ",
+            false,
+        ),
+        None => f.render_widget(Block::new().borders(Borders::ALL).title(" preview "), right),
+    }
+}
+
+fn pane(
+    f: &mut Frame,
+    area: Rect,
+    entries: &[cdt_tree::Entry],
+    sel: Option<usize>,
+    title: &str,
+    active: bool,
+) {
+    let items: Vec<ListItem> = entries.iter().map(entry_row).collect();
+    let mut state = ListState::default().with_selected(sel);
+    let highlight = if active {
+        Style::new().reversed()
     } else {
-        "▸ "
+        Style::new().fg(Color::DarkGray).reversed()
     };
+    f.render_stateful_widget(
+        List::new(items)
+            .block(Block::new().borders(Borders::ALL).title(title.to_string()))
+            .highlight_style(highlight),
+        area,
+        &mut state,
+    );
+}
+
+fn entry_row(e: &cdt_tree::Entry) -> ListItem<'static> {
     let style = if e.is_dir {
         Style::new().fg(Color::Cyan).bold()
     } else {
         Style::new()
     };
-    ListItem::new(format!("{}{icon}{}", "  ".repeat(e.depth), e.name())).style(style)
+    let suffix = if e.is_dir { "/" } else { "" };
+    ListItem::new(format!("{}{suffix}", e.name())).style(style)
 }
 
 fn status(app: &App) -> String {

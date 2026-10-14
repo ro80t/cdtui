@@ -148,9 +148,9 @@ fn on_tree_key(app: &mut App, code: KeyCode) -> Option<Action> {
         KeyCode::Char('g') => app.sel = 0,
         KeyCode::Char('G') => app.sel = app.len().saturating_sub(1),
         KeyCode::Char('l') | KeyCode::Right | KeyCode::Tab | KeyCode::Char(' ') => {
-            app.tree.toggle(app.sel)
+            app.enter_dir()
         }
-        KeyCode::Char('h') | KeyCode::Left => app.collapse_or_up(),
+        KeyCode::Char('h') | KeyCode::Left => app.leave_dir(),
         KeyCode::Char('.') => app.toggle_hidden(),
         KeyCode::Char('/') => app.mode = Mode::Find(String::new()),
         KeyCode::Char('s') => app.mode = Mode::Grep(String::new()),
@@ -185,21 +185,23 @@ mod tests {
     }
 
     #[test]
-    fn l_expands_a_directory_and_h_collapses_it() {
+    fn l_enters_a_directory_and_h_steps_back_out() {
         let mut app = app();
+        let root = app.tree.root.clone();
         app.sel = app
             .tree
             .entries
             .iter()
             .position(|e| e.is_dir)
             .expect("src/ exists");
-        let before = app.tree.len();
+        let child = app.tree.entries[app.sel].path.clone();
 
         assert_eq!(on_key(&mut app, KeyCode::Char('l')), None);
-        assert!(app.tree.len() > before);
+        assert_eq!(app.tree.root, child);
 
         assert_eq!(on_key(&mut app, KeyCode::Char('h')), None);
-        assert_eq!(app.tree.len(), before);
+        assert_eq!(app.tree.root, root);
+        assert_eq!(app.tree.entries[app.sel].path, child, "cursor should stay on src/");
     }
 
     #[test]
