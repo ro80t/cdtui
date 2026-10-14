@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use cdt_tree::Tree;
+use ratatui::widgets::ListState;
 
 use crate::search::{Done, Kind, Search};
 
@@ -19,6 +20,12 @@ pub(crate) struct App {
     pub(crate) sel: usize,
     pub(crate) msg: String,
     pub(crate) search: Search,
+    /// The active list's scroll position. Kept across frames — rebuilding a
+    /// fresh `ListState` every render would drop its `offset`, which makes
+    /// ratatui re-derive the smallest offset that fits the selection, i.e.
+    /// pin the cursor to the last visible row on every downward move instead
+    /// of scrolling smoothly.
+    pub(crate) list: ListState,
 }
 
 impl App {
@@ -30,6 +37,7 @@ impl App {
             sel: 0,
             msg: String::new(),
             search: Search::spawn(),
+            list: ListState::default(),
         }
     }
 

@@ -1,6 +1,7 @@
 //! Rendering. A yazi-style 3-pane browser (parent / current / preview) plus a
-//! one-line status bar in tree mode, one flat list in search mode; nothing
-//! here mutates state.
+//! one-line status bar in tree mode, one flat list in search mode. Touches no
+//! business state — `app.list` is the one exception, a scroll offset that is
+//! purely a view concern but has to survive between frames.
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
@@ -8,7 +9,12 @@ use crate::app::{App, Mode};
 
 const HELP: &str = "j/k move  l in  h out  / find  s grep  . hidden  Enter cd  q quit";
 
-pub(crate) fn draw(f: &mut Frame, app: &App) {
+/// Keep this many rows visible past the cursor (vim's `scrolloff`), so
+/// scrolling reveals what's coming instead of landing the selection right on
+/// the edge of the pane.
+const SCROLL_PADDING: usize = 4;
+
+pub(crate) fn draw(f: &mut Frame, app: &mut App) {
     let [body, bar] = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(f.area());
 
     match app.mode {
@@ -22,13 +28,15 @@ pub(crate) fn draw(f: &mut Frame, app: &App) {
     );
 }
 
-fn draw_hits(f: &mut Frame, app: &App, area: Rect) {
+/// The hit list is the one the user scrolls, so it gets `app.list`, kept
+/// across frames so its offset persists (see the field doc on `App::list`).
+fn draw_hits(f: &mut Frame, app: &mut App, area: Rect) {
     let items: Vec<ListItem> = app
         .hits
         .iter()
         .map(|p| ListItem::new(cdt_search::label(&app.tree.root, p)))
         .collect();
-    let mut state = ListState::default().with_selected(Some(app.sel));
+    app.list.select(Some(app.sel));
     f.render_stateful_widget(
         List::new(items)
             .block(
@@ -36,15 +44,16 @@ fn draw_hits(f: &mut Frame, app: &App, area: Rect) {
                     .borders(Borders::ALL)
                     .title(format!(" {} ", app.tree.display_root())),
             )
-            .highlight_style(Style::new().reversed()),
+            .highlight_style(Style::new().reversed())
+            .scroll_padding(SCROLL_PADDING),
         area,
-        &mut state,
+        &mut app.list,
     );
 }
 
 /// Three columns: the parent directory (for context), the one being browsed
 /// (interactive), and a preview of whatever is selected in it.
-fn draw_panes(f: &mut Frame, app: &App, area: Rect) {
+fn draw_panes(f: &mut Frame, app: &mut App, area: Rect) {
     let [left, mid, right] = Layout::horizontal([
         Constraint::Ratio(1, 4),
         Constraint::Ratio(1, 2),
@@ -55,16 +64,19 @@ fn draw_panes(f: &mut Frame, app: &App, area: Rect) {
     match cdt_tree::up_listing(&app.tree.root, app.tree.hidden) {
         Some(parent) => {
             let sel = parent.iter().position(|e| e.path == app.tree.root);
-            pane(f, left, &parent, sel, " .. ", false);
+            pane(f, left, &parent, &mut ListState::default().with_selected(sel), " .. ", false);
         }
         None => f.render_widget(Block::new().borders(Borders::ALL).title(" .. "), left),
     }
 
+    // The middle pane is the one j/k scrolls, so it keeps its offset in
+    // `app.list` instead of a fresh, always-zeroed `ListState`.
+    app.list.select(Some(app.sel));
     pane(
         f,
         mid,
         &app.tree.entries,
-        Some(app.sel),
+        &mut app.list,
         &format!(" {} ", app.tree.display_root()),
         true,
     );
@@ -74,7 +86,7 @@ fn draw_panes(f: &mut Frame, app: &App, area: Rect) {
             f,
             right,
             &cdt_tree::children(p, app.tree.hidden),
-            None,
+            &mut ListState::default(),
             " preview ",
             false,
         ),
@@ -86,23 +98,24 @@ fn pane(
     f: &mut Frame,
     area: Rect,
     entries: &[cdt_tree::Entry],
-    sel: Option<usize>,
+    state: &mut ListState,
     title: &str,
     active: bool,
 ) {
     let items: Vec<ListItem> = entries.iter().map(entry_row).collect();
-    let mut state = ListState::default().with_selected(sel);
     let highlight = if active {
         Style::new().reversed()
     } else {
         Style::new().fg(Color::DarkGray).reversed()
     };
+    let padding = if active { SCROLL_PADDING } else { 0 };
     f.render_stateful_widget(
         List::new(items)
             .block(Block::new().borders(Borders::ALL).title(title.to_string()))
-            .highlight_style(highlight),
+            .highlight_style(highlight)
+            .scroll_padding(padding),
         area,
-        &mut state,
+        state,
     );
 }
 
