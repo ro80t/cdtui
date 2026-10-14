@@ -118,6 +118,10 @@ impl Tree {
         self.root.to_string_lossy()
     }
 
+    // No `is_empty`: nothing in this codebase checks a Tree for emptiness,
+    // only its length (for `sel` bounds), so the pair convention clippy wants
+    // would just be dead code.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
