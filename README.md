@@ -3,6 +3,8 @@
 [![CI](https://github.com/ro80t/cdtui/actions/workflows/ci.yml/badge.svg)](https://github.com/ro80t/cdtui/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/cdtui.svg)](https://crates.io/crates/cdtui)
 
+![screenshot](./images/screenshot.png)
+
 A neo-tree style terminal UI for picking a directory to `cd` into — browse the
 tree, search it with ripgrep, press Enter, and your shell is there.
 
