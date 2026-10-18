@@ -5,7 +5,7 @@
 
 ![screenshot](./images/screenshot.png)
 
-A neo-tree style terminal UI for picking a directory to `cd` into — browse the
+A yazi style terminal UI for picking a directory to `cd` into — browse the
 tree, search it with ripgrep, press Enter, and your shell is there.
 
 ## Install

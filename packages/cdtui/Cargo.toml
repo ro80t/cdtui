@@ -6,7 +6,7 @@ name = "cdtui"
 # Both bins are the same program, so `cargo run` should not have to be told
 # which one: without this it fails with "could not determine which binary".
 default-run = "cdt"
-description = "A neo-tree style terminal UI for cd-ing around a directory tree, with ripgrep search."
+description = "A yazi style terminal UI for cd-ing around a directory tree, with ripgrep search."
 keywords = ["cd", "tui", "ripgrep", "navigation", "shell"]
 version.workspace = true
 edition.workspace = true
