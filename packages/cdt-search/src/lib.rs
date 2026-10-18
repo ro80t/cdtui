@@ -1,5 +1,6 @@
-//! Search backends. Names go through ripgrep's walker (`ignore` crate, in
-//! process); content goes through the `rg` binary.
+//! Search backends. Names go through the `rg` binary when present, else
+//! ripgrep's walker (`ignore` crate, in process); content always uses `rg`.
+use std::collections::BTreeSet;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -17,17 +18,47 @@ pub fn find_names(root: &Path, pat: &str, hidden: bool) -> Vec<PathBuf> {
         return Vec::new();
     }
     let pat = pat.to_lowercase();
+    find_names_rg(root, &pat, hidden).unwrap_or_else(|_| find_names_walk(root, &pat, hidden))
+}
+
+/// Names via `rg --files`; errors if the `rg` binary is missing. `--files`
+/// lists only files, so folders are recovered from each file's ancestors.
+/// ponytail: folders with no files under them are never listed; the walker
+/// fallback still finds them.
+fn find_names_rg(root: &Path, pat: &str, hidden: bool) -> io::Result<Vec<PathBuf>> {
+    let mut cmd = Command::new("rg");
+    cmd.args(["--files", "--color=never"]);
+    if hidden {
+        cmd.arg("--hidden");
+    }
+    let out = cmd.arg(root).output()?;
+    let mut seen = BTreeSet::new();
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let mut p = Path::new(line);
+        while p != root && seen.insert(p.to_path_buf()) {
+            match p.parent() {
+                Some(up) => p = up,
+                None => break,
+            }
+        }
+    }
+    Ok(seen
+        .into_iter()
+        .filter(|p| {
+            p.file_name()
+                .is_some_and(|n| n.to_string_lossy().to_lowercase().contains(pat))
+        })
+        .take(MAX_HITS)
+        .collect())
+}
+
+fn find_names_walk(root: &Path, pat: &str, hidden: bool) -> Vec<PathBuf> {
     ignore::WalkBuilder::new(root)
         .hidden(!hidden)
         .build()
         .flatten()
         .filter(|e| e.depth() > 0)
-        .filter(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .to_lowercase()
-                .contains(&pat)
-        })
+        .filter(|e| e.file_name().to_string_lossy().to_lowercase().contains(pat))
         .take(MAX_HITS)
         .map(|e| e.path().to_path_buf())
         .collect()

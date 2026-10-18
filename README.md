@@ -83,8 +83,9 @@ search rather than act:
 | `Enter` | `cd` to the selected hit and exit |
 | `Esc` | back to the tree |
 
-`/` does not need ripgrep installed: it uses ripgrep's own walker (the `ignore`
-crate) as a library. `s` shells out to `rg`. Both run on a worker thread, so
+`/` uses `rg` when it is on `PATH` and falls back to ripgrep's own walker (the
+`ignore` crate) otherwise, so it works without ripgrep installed. `s` always
+shells out to `rg`. Both run on a worker thread, so
 typing stays responsive on a large tree and the status bar shows `searching…`
 until the hits land. A count shown as `500+` means the list was capped.
 
