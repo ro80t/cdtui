@@ -80,7 +80,7 @@ jobs:
 
       # Guards rust-version in Cargo.toml: bump both together or not at all.
       - name: Install the oldest supported Rust toolchain
-        uses: dtolnay/rust-toolchain@1.88.0
+        uses: dtolnay/rust-toolchain@1.120.0
 
       - name: Set up sccache
         uses: mozilla-actions/sccache-action@v0.0.11
